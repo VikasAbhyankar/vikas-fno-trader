@@ -1,0 +1,24 @@
+name: Vikas FNO Trader
+on:
+  schedule:
+    - cron: '0,15,30,45 4-9 * * 1-5'
+    - cron: '0,15,30 10 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  trade:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install yfinance ta pandas
+      - run: python main.py
+      - run: |
+          git config user.name "bot"
+          git config user.email "bot@bot.com"
+          git add reports/
+          git diff --staged --quiet || git commit -m "trades $(date)"
+          git push
