@@ -1,24 +1,46 @@
-name: Vikas FNO Trader
+name: FNO V5 Intelligent Anti-Hunt Bot - Separate Telegram
+
 on:
   schedule:
+    # Market hours IST 9:30 AM to 3:30 PM = UTC 4:00 to 10:00
+    # Runs every 15 mins
     - cron: '0,15,30,45 4-9 * * 1-5'
-    - cron: '0,15,30 10 * * 1-5'
+    - cron: '0,15 10 * * 1-5'
   workflow_dispatch:
+
 permissions:
   contents: write
+
 jobs:
   trade:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - run: pip install yfinance ta pandas
-      - run: python main.py
-      - run: |
-          git config user.name "bot"
-          git config user.email "bot@bot.com"
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install yfinance pandas ta requests
+
+      - name: Run python main.py
+        env:
+          TELEGRAM_FNO_BOT_TOKEN: ${{ secrets.TELEGRAM_FNO_BOT_TOKEN }}
+          TELEGRAM_FNO_CHAT_ID: ${{ secrets.TELEGRAM_FNO_CHAT_ID }}
+        run: python main.py
+
+      - name: Commit and push reports
+        run: |
+          git config --global user.name "FNO V5 Bot"
+          git config --global user.email "fno-v5-bot@github.com"
           git add reports/
-          git diff --staged --quiet || git commit -m "trades $(date)"
+          git commit -m "FNO V5 update $(date -u) - Regime + Anti-Hunt" || echo "No changes to commit"
           git push
+
+      - name: Done
+        run: echo "FNO V5 Separate Bot Done"
