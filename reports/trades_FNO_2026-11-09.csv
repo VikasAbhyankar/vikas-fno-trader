@@ -1,3 +1,6 @@
-symbol,entry,sl,target,entry_time,exit,exit_time,pnl,status,reason
-AUROPHARMA,1855.3,1840.46,1892.41,16:50,,,,OPEN,C5+V Breakout
-BANKBARODA,260.01,257.93,265.21,16:50,,,,OPEN,C5+V Breakout
+symbol,side,regime,entry,sl,sl_actual,target,entry_time,exit,exit_time,pnl,status,reason
+AUROPHARMA,,,1855.3,1840.46,,1892.41,16:50,,,,OPEN,C5+V Breakout
+BANKBARODA,,,260.01,257.93,,265.21,16:50,,,,OPEN,C5+V Breakout
+LT,BUY,BULL,4185.0,4143.15,4126.58,4247.77,17:10,,,,OPEN,Bull Breakout Vol+ | NIFTY 25045 > 50EMA + RSI 79 - BULL
+SBIN,BUY,BULL,1042.0,1031.58,1027.45,1057.63,17:10,,,,OPEN,Bull Breakout Vol+ | NIFTY 25045 > 50EMA + RSI 79 - BULL
+SUNPHARMA,BUY,BULL,1904.5,1885.45,1877.91,1933.07,17:10,,,,OPEN,Bull Breakout Vol+ | NIFTY 25045 > 50EMA + RSI 79 - BULL
