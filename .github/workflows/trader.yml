@@ -4,7 +4,8 @@ on:
     - cron: '0,15,30,45 4-9 * * 1-5'
     - cron: '0,15,30 10 * * 1-5'
   workflow_dispatch:
-
+permissions:
+  contents: write
 jobs:
   trade:
     runs-on: ubuntu-latest
