@@ -1,4 +1,4 @@
-name: FNO V5 All 184 Stocks - Separate Bot
+name: FNO V5 AUTO 184 Stocks - Separate Bot
 
 on:
   schedule:
@@ -14,19 +14,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python Setup
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      - run: |
-          pip install yfinance pandas ta requests
-      - env:
+
+      - name: Install
+        run: pip install yfinance pandas ta requests
+
+      - name: Run FNO V5 - All 184
+        env:
           TELEGRAM_FNO_BOT_TOKEN: ${{ secrets.TELEGRAM_FNO_BOT_TOKEN }}
           TELEGRAM_FNO_CHAT_ID: ${{ secrets.TELEGRAM_FNO_CHAT_ID }}
         run: python main.py
-      - run: |
-          git config --global user.name "FNO V5"
-          git config --global user.email "fno@github.com"
+
+      - name: Push Reports
+        run: |
+          git config --global user.name "FNO V5 Auto"
+          git config --global user.email "fno-auto@github.com"
           git add reports/
-          git commit -m "FNO V5 184 stocks update" || echo "No changes"
+          git commit -m "AUTO FNO V5 184 stocks $(date -u)" || echo "No changes"
           git push
