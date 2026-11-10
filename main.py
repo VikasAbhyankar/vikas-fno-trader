@@ -1,312 +1,288 @@
-# VIKAS FNO V5 INTELLIGENT + SEPARATE TELEGRAM BOT - FULL 260 LINES - ZERO ERROR
-import datetime
-import csv
-import os
-import time
-import requests
-import pandas as pd
+import os, requests, time, pandas as pd, pytz
+from datetime import datetime, timedelta
 import yfinance as yf
 import ta
 
 # ================= CONFIG =================
+IST = pytz.timezone("Asia/Kolkata")
 REPORT_DIR = "reports"
 os.makedirs(REPORT_DIR, exist_ok=True)
-TODAY = datetime.date.today().isoformat()
-REPORT_FILE = f"{REPORT_DIR}/trades_FNO_{TODAY}.csv"
 
-DISPLAY_SL_PCT = 1.0
-HIDDEN_BUFFER_PCT = 0.4
-TARGET_PCT = 1.5
-SIDEWAYS_SL = 0.8
-SIDEWAYS_TARGET = 1.2
-
-SYMBOLS = [
-    "ABB.NS","ABBOTINDIA.NS","ABCAPITAL.NS","ABFRL.NS","ACC.NS",
-    "ADANIENT.NS","ADANIGREEN.NS","ADANIPORTS.NS","ADANIPOWER.NS","ALKEM.NS",
-    "AMBUJACEM.NS","APOLLOHOSP.NS","APOLLOTYRE.NS","ASIANPAINT.NS","ASTRAL.NS",
-    "ATGL.NS","AUROPHARMA.NS","DMART.NS","AXISBANK.NS","BAJAJ-AUTO.NS",
-    "BAJFINANCE.NS","BAJAJFINSV.NS","BALKRISIND.NS","BANKBARODA.NS","BANKINDIA.NS",
-    "BATAINDIA.NS","BEL.NS","BHARATFORG.NS","BHARTIARTL.NS","BHEL.NS",
-    "BIOCON.NS","BOSCHLTD.NS","BPCL.NS","BRITANNIA.NS","BSE.NS",
-    "BSOFT.NS","CAMS.NS","CANBK.NS","CDSL.NS","CESC.NS",
-    "CGPOWER.NS","CHAMBLFERT.NS","CHOLAFIN.NS","CIPLA.NS","COALINDIA.NS",
-    "COFORGE.NS","COLPAL.NS","CONCOR.NS","COROMANDEL.NS","CROMPTON.NS",
-    "CUB.NS","CUMMINSIND.NS","DABUR.NS","DALBHARAT.NS","DEEPAKNTR.NS",
-    "DELHIVERY.NS","DIVISLAB.NS","DIXON.NS","DLF.NS","DRREDDY.NS",
-    "EICHERMOT.NS","ESCORTS.NS","EXIDEIND.NS","FEDERALBNK.NS","GAIL.NS",
-    "GLENMARK.NS","GMRINFRA.NS","GNFC.NS","GODREJCP.NS","GODREJPROP.NS",
-    "GRANULES.NS","GRASIM.NS","GUJGASLTD.NS","HAL.NS","HAVELLS.NS",
-    "HCLTECH.NS","HDFCAMC.NS","HDFCBANK.NS","HDFCLIFE.NS","HEROMOTOCO.NS",
-    "HINDALCO.NS","HINDCOPPER.NS","HINDPETRO.NS","HINDUNILVR.NS","ICICIBANK.NS",
-    "ICICIGI.NS","ICICIPRULI.NS","IDEA.NS","IDFC.NS","IDFCFIRSTB.NS",
-    "IEX.NS","IGL.NS","INDHOTEL.NS","INDIAMART.NS","INDIGO.NS",
-    "INDUSINDBK.NS","INDUSTOWER.NS","INFY.NS","IOC.NS","IPCALAB.NS",
-    "IRCTC.NS","IRFC.NS","ITC.NS","JINDALSTEL.NS","JKCEMENT.NS",
-    "JSWENERGY.NS","JSWSTEEL.NS","JUBLFOOD.NS","KOTAKBANK.NS","KPITTECH.NS",
-    "L&T.NS","LALPATHLAB.NS","LAURUSLABS.NS","LICHSGFIN.NS","LTIM.NS",
-    "LTF.NS","LT.NS","LUPIN.NS","M&M.NS","M&MFIN.NS",
-    "MANAPPURAM.NS","MARICO.NS","MARUTI.NS","MCX.NS","METROPOLIS.NS",
-    "MFSL.NS","MGL.NS","MOTHERSON.NS","MPHASIS.NS","MRF.NS",
-    "MUTHOOTFIN.NS","NATIONALUM.NS","NAUKRI.NS","NBCC.NS","NCC.NS",
-    "NESTLEIND.NS","NHPC.NS","NMDC.NS","NTPC.NS","OBEROIRLTY.NS",
-    "OFSS.NS","ONGC.NS","PAGEIND.NS","PATANJALI.NS","PEL.NS",
-    "PERSISTENT.NS","PETRONET.NS","PFC.NS","PIDILITIND.NS","PIIND.NS",
-    "PNB.NS","POLYCAB.NS","POWERGRID.NS","PRESTIGE.NS","PVRINOX.NS",
-    "RAMCOCEM.NS","RBLBANK.NS","RECLTD.NS","RELIANCE.NS","SAIL.NS",
-    "SBICARD.NS","SBILIFE.NS","SBIN.NS","SHREECEM.NS","SHRIRAMFIN.NS",
-    "SIEMENS.NS","SJVN.NS","SONACOMS.NS","SRF.NS","SUNPHARMA.NS",
-    "SUNTV.NS","SYNGENE.NS","TATACHEM.NS","TATACOMM.NS","TATACONSUM.NS",
-    "TATAMOTORS.NS","TATAPOWER.NS","TATASTEEL.NS","TCS.NS","TECHM.NS",
-    "TITAN.NS","TORNTPHARM.NS","TRENT.NS","TVSMOTOR.NS","ULTRACEMCO.NS",
-    "UNIONBANK.NS","UPL.NS","VEDL.NS","VOLTAS.NS","WIPRO.NS",
-    "ZOMATO.NS","ZYDUSLIFE.NS"
-]
-
-# Separate bot secrets - Different from Nifty Future Bot
+# Telegram + WhatsApp Secrets
 BOT_TOKEN = os.getenv("TELEGRAM_FNO_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_FNO_CHAT_ID")
+DHAN_TOKEN = os.getenv("DHAN_ACCESS_TOKEN")
+WHATSAPP_APIKEY = os.getenv("WHATSAPP_APIKEY")
+FRIEND_PHONE = "919425074989"
 
+# ========= DHAN REAL NSE MAP - 176 STOCKS =========
+DHAN_MAP = {
+    "360ONE": 13061, "ABB": 13, "ABCAPITAL": 21614, "ABFRL": 30108, "ADANIENT": 25, "ADANIPORTS": 15083,
+    "ALKEM": 11703, "AMBER": 1185, "AMBUJACEM": 1270, "APLLTD": 25328, "APOLLOHOSP": 157, "ASIANPAINT": 236,
+    "ASTRAL": 14418, "ATGL": 6066, "AUROPHARMA": 275, "AXISBANK": 5900, "BAJAJ-AUTO": 16669, "BAJAJFINSV": 16675,
+    "BAJAJHFL": 25270, "BAJFINANCE": 317, "BANDHANBNK": 2263, "BANKBARODA": 4668, "BDL": 2144, "BEL": 383,
+    "BHARATFORG": 422, "BHARTIARTL": 10604, "BHEL": 438, "BIKAJI": 11966, "BIOCON": 11373, "BLUESTARCO": 8311,
+    "BOSCHLTD": 2181, "BPCL": 526, "BRITANNIA": 547, "BSE": 19585, "BSOFT": 6994, "CAMS": 342, "CANBK": 10794,
+    "CANFINHOME": 583, "CDSL": 21174, "CGPOWER": 760, "CHAMBLFERT": 637, "CHOLAFIN": 685, "CIPLA": 694,
+    "COALINDIA": 20374, "COFORGE": 11543, "COLPAL": 15141, "CONCOR": 4749, "CROMPTON": 17094, "CUMMINSIND": 1901,
+    "CYIENT": 5748, "DABUR": 772, "DALBHARAT": 8075, "DEEPAKNTR": 19943, "DELHIVERY": 9599, "DIVISLAB": 10940,
+    "DIXON": 21690, "DLF": 14732, "DMART": 19913, "DRREDDY": 881, "EICHERMOT": 910, "ETERNAL": 5097, "EXIDEIND": 676,
+    "FEDERALBNK": 1023, "FORTIS": 14592, "GAIL": 4717, "GLENMARK": 7406, "GMRAIRPORT": 13528, "GODREJCP": 10099,
+    "GODREJPROP": 17875, "GRANULES": 11872, "GRASIM": 1232, "HAL": 2303, "HAVELLS": 9819, "HCLTECH": 7229,
+    "HDFCAMC": 4244, "HDFCBANK": 1333, "HDFCLIFE": 467, "HEROMOTOCO": 1348, "HINDALCO": 1363, "HINDCOPPER": 17939,
+    "HINDPETRO": 1406, "HINDUNILVR": 1394, "HINDZINC": 1424, "HUDCO": 20825, "ICICIBANK": 4963, "ICICIGI": 21770,
+    "IDFCFIRSTB": 11184, "IEX": 220, "IGL": 11262, "INDHOTEL": 1512, "INDIANB": 14309, "INDIGO": 11195,
+    "INDUSINDBK": 5258, "INDUSTOWER": 29135, "INFY": 1594, "IOC": 1624, "IRB": 15313, "IRCTC": 13611, "IREDA": 20261,
+    "IRFC": 2029, "ITC": 1660, "JIOFIN": 18143, "JSL": 11236, "JSWENERGY": 17869, "JSWSTEEL": 11723, "KAYNES": 12092,
+    "KEI": 13310, "KFINTECH": 13359, "KOTAKBANK": 1922, "KPITTECH": 9683, "LALPATHLAB": 11654, "LAURUSLABS": 19234,
+    "LICHSGFIN": 1997, "LICI": 9480, "LODHA": 3220, "LT": 11483, "LTF": 24948, "LUPIN": 10440, "M&M": 2031,
+    "MANKIND": 15380, "MANYAVAR": 8167, "MARICO": 4067, "MARUTI": 10999, "MAXHEALTH": 22377, "MCX": 31181,
+    "MFSL": 2142, "MOTHERSON": 4204, "MPHASIS": 4503, "MUTHOOTFIN": 23650, "NATIONALUM": 6364, "NAUKRI": 13751,
+    "NBCC": 31415, "NCC": 2319, "NESTLEIND": 17963, "NHPC": 17400, "NMDC": 15332, "NTPC": 11630, "NYKAA": 6545,
+    "OBEROIRLTY": 20242, "OFSS": 10738, "OIL": 17438, "ONGC": 2475, "PAGEIND": 14413, "PATANJALI": 17029,
+    "PAYTM": 6705, "PERSISTENT": 18365, "PETRONET": 11351, "PFC": 14299, "PHOENIXLTD": 14552, "PIDILITIND": 2664,
+    "POLYCAB": 9590, "POWERGRID": 14977, "PRESTIGE": 20302, "PTCIL": 16682, "RECLTD": 15355, "RELIANCE": 2885,
+    "SAIL": 2963, "SBICARD": 17971, "SBILIFE": 21808, "SBIN": 3045, "SHREECEM": 3103, "SHRIRAMFIN": 4306,
+    "SIEMENS": 3150, "SOLARINDS": 13332, "SONACOMS": 4684, "SRF": 3273, "SUNPHARMA": 3351, "SUPREMEIND": 3363,
+    "SYNGENE": 10243, "TATACOMM": 3721, "TATACONSUM": 3432, "TATAELXSI": 3411, "TATAPOWER": 3426, "TATASTEEL": 3499,
+    "TATATECH": 20293, "TCS": 11536, "TECHM": 13538, "TITAN": 3506, "TORNTPHARM": 3518, "TORNTPOWER": 13786,
+    "TRENT": 1964, "TVSMOTOR": 8479, "UNIONBANK": 10753, "UNOMINDA": 14154, "UPL": 11287, "VEDL": 3063,
+    "VOLTAS": 3718, "WIPRO": 3787, "YESBANK": 11915, "ZYDUSLIFE": 7929,
+    "JINDALSTAIN": 11236, "JINDALSTEEL": 6733, "POLICYBTR": 6656, "TATAMOTORS": 759782, "UNITECEM": 11532
+}
+
+# All 184 F&O Stocks
+ALL_STOCKS = [
+    "360ONE","ABB","ABCAPITAL","ABFRL","ADANIENT","ADANIPORTS","ALKEM","AMBER","AMBUJACEM","APLLTD","APOLLOHOSP",
+    "ASIANPAINT","ASTRAL","ATGL","AUROPHARMA","AXISBANK","BAJAJ-AUTO","BAJAJFINSV","BAJAJHFL","BAJFINANCE","BANDHANBNK",
+    "BANKBARODA","BDL","BEL","BHARATFORG","BHARTIARTL","BHEL","BIKAJI","BIOCON","BLUESTARCO","BOSCHLTD","BPCL","BRITANNIA",
+    "BSE","BSOFT","CAMS","CANBK","CANFINHOME","CDSL","CGPOWER","CHAMBLFERT","CHOLAFIN","CIPLA","COALINDIA","COFORGE",
+    "COLPAL","CONCOR","CROMPTON","CUMMINSIND","CYIENT","DABUR","DALBHARAT","DEEPAKNTR","DELHIVERY","DIVISLAB","DIXON","DLF",
+    "DMART","DRREDDY","EICHERMOT","ETERNAL","EXIDEIND","FEDERALBNK","FORTIS","GAIL","GLENMARK","GMRAIRPORT","GODREJCP",
+    "GODREJPROP","GMRPOWER","GRANULES","GRASIM","HAL","HAVELLS","HCLTECH","HDFCAMC","HDFCBANK","HDFCLIFE","HEROMOTOCO",
+    "HINDALCO","HINDCOPPER","HINDPETRO","HINDUNILVR","HINDZINC","HUDCO","ICICIBANK","ICICIGI","ICICIPRULI","IDFCFIRSTB",
+    "IEX","IGL","INDHOTEL","INDIANB","INDIGO","INDUSINDBK","INDUSTOWER","INFY","IOC","IRB","IRCTC","IREDA","IRFC","ITC",
+    "JINDALSTAIN","JINDALSTEEL","JIOFIN","JSWENERGY","JSWSTEEL","KAYNES","KEI","KFINTECH","KOTAKBANK","KPITTECH",
+    "LALPATHLAB","LAURUSLABS","LICHSGFIN","LICI","LODHA","LT","LTF","LTIM","LUPIN","M&M","MANKIND","MANYAVAR","MARICO",
+    "MARUTI","MAXHEALTH","MCX","MFSL","MOTHERSON","MPHASIS","MUTHOOTFIN","NATIONALUM","NAUKRI","NBCC","NCC","NESTLEIND",
+    "NHPC","NMDC","NTPC","NYKAA","OBEROIRLTY","OFSS","OIL","ONGC","PAGEIND","PATANJALI","PAYTM","PERSISTENT","PETRONET",
+    "PFC","PHOENIXLTD","PIDILITIND","POLICYBTR","POLYCAB","POWERGRID","PRESTIGE","PTCIL","RECLTD","RELIANCE","SAIL",
+    "SBICARD","SBILIFE","SBIN","SHREECEM","SHRIRAMFIN","SIEMENS","SOLARINDS","SONACOMS","SRF","SUNPHARMA","SUPREMEIND",
+    "SYNGENE","TATACOMM","TATACONSUM","TATAELXSI","TATAMOTORS","TATAPOWER","TATASTEEL","TATATECH","TCS","TECHM","TITAN",
+    "TORNTPHARM","TORNTPOWER","TRENT","TVSMOTOR","UNIONBANK","UNITECEM","UNOMINDA","UPL","VEDL","VOLTAS","WIPRO","YESBANK","ZYDUSLIFE"
+]
+
+# ================= MESSAGING =================
 def send_tg(msg):
-    """Send to separate FNO V5 bot"""
     if not BOT_TOKEN or not CHAT_ID:
-        print("TG secrets missing - Skipping")
+        print("TG secrets missing")
         return
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
         payload = {"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}
-        resp = requests.post(url, json=payload, timeout=15)
-        print(f"TG Sent: {resp.status_code}")
+        requests.post(url, json=payload, timeout=15)
+        print(f"TG Sent: {msg[:40]}")
     except Exception as e:
-        print(f"TG error: {e}")
+        print(f"TG error {e}")
 
-def safe_columns(df):
-    """Fix yfinance multiindex issue"""
-    if df is None or df.empty:
-        return df
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    return df
-
-def get_market_regime():
-    """Detect NIFTY regime for intelligent trading"""
+def send_whatsapp(msg):
+    if not WHATSAPP_APIKEY:
+        print("WhatsApp APIKEY not set - skip")
+        return
     try:
-        print("Fetching NIFTY for regime...")
-        nifty = yf.download("^NSEI", period="60d", interval="1d", progress=False, auto_adjust=True)
-        if nifty.empty or len(nifty) < 35:
-            print("Nifty data low")
-            return "SIDEWAYS", "Nifty data insufficient - Default Sideways"
-        nifty = safe_columns(nifty)
-        nifty['ema20'] = ta.trend.ema_indicator(nifty['Close'], 20)
-        nifty['ema50'] = ta.trend.ema_indicator(nifty['Close'], 50)
-        nifty['rsi'] = ta.momentum.rsi(nifty['Close'], 14)
-        last = nifty.iloc[-1]
-        close = float(last['Close'])
-        ema50 = float(last['ema50'])
-        rsi = float(last['rsi'])
-        ema20 = float(last['ema20'])
-        print(f"NIFTY Close {close} EMA50 {ema50} RSI {rsi}")
-        if close > ema50 and rsi > 55 and ema20 > ema50:
-            return "BULL", f"NIFTY {close:.0f} > 50EMA + RSI {rsi:.0f} - BULL"
-        elif close < ema50 and rsi < 45 and ema20 < ema50:
-            return "BEAR", f"NIFTY {close:.0f} < 50EMA + RSI {rsi:.0f} - BEAR"
-        else:
-            return "SIDEWAYS", f"NIFTY {close:.0f} ~ EMA + RSI {rsi:.0f} - SIDEWAYS"
+        clean = requests.utils.quote(msg)
+        url = f"https://api.callmebot.com/whatsapp.php?phone={FRIEND_PHONE}&text={clean}&apikey={WHATSAPP_APIKEY}"
+        r = requests.get(url, timeout=15)
+        print(f"WA Sent to {FRIEND_PHONE}: {r.text[:100]}")
     except Exception as e:
-        print(f"Regime error {e}")
-        return "SIDEWAYS", f"Error {e} - Default Sideways"
+        print(f"WA error {e}")
 
-def get_signal(symbol, regime):
-    """Generate BUY/SELL per regime with volume breakout"""
-    try:
-        df = yf.download(symbol, period="60d", interval="1d", progress=False, auto_adjust=True, threads=False)
-        if df.empty or len(df) < 35:
-            return None, 0, ""
-        df = safe_columns(df)
-        # Indicators
-        df['ema8'] = ta.trend.ema_indicator(df['Close'], 8)
-        df['ema20'] = ta.trend.ema_indicator(df['Close'], 20)
-        df['rsi9'] = ta.momentum.rsi(df['Close'], 9)
-        df['rsi14'] = ta.momentum.rsi(df['Close'], 14)
-        df['20h'] = df['High'].rolling(20).max()
-        df['20l'] = df['Low'].rolling(20).min()
-        df['vol_avg'] = df['Volume'].rolling(20).mean()
-        last = df.iloc[-1]
-        prev1 = df.iloc[-2]
-        prev2 = df.iloc[-3]
-        close = float(last['Close'])
-        vol = float(last['Volume'])
-        vol_avg = float(last['vol_avg']) if not pd.isna(last['vol_avg']) else vol
-        rsi9 = float(last['rsi9'])
-        rsi14 = float(last['rsi14'])
-        ema8 = float(last['ema8'])
-        ema20 = float(last['ema20'])
-        high20 = float(df['20h'].iloc[-2]) if not pd.isna(df['20h'].iloc[-2]) else 0
-        low20 = float(df['20l'].iloc[-2]) if not pd.isna(df['20l'].iloc[-2]) else 0
-        curr_20l = float(df['20l'].iloc[-1]) if not pd.isna(df['20l'].iloc[-1]) else 0
-        curr_20h = float(df['20h'].iloc[-1]) if not pd.isna(df['20h'].iloc[-1]) else 0
-        turnover = close * vol
-        # BULL
-        if regime == "BULL":
-            if close > high20 and rsi9 > 60 and ema8 > ema20 and vol > vol_avg * 1.3 and float(prev1['Volume']) < float(prev2['Volume']) and turnover > 300000000:
-                return "BUY", close, "Bull Breakout Vol+"
-        # BEAR
-        elif regime == "BEAR":
-            if close < low20 and rsi9 < 40 and ema8 < ema20 and vol > vol_avg * 1.3 and turnover > 300000000:
-                return "SELL", close, "Bear Breakdown Vol+"
-        # SIDEWAYS
-        else:
-            if close <= curr_20l * 1.02 and rsi14 < 38 and turnover > 200000000:
-                return "BUY", close, "Sideways Oversold Bounce"
-            if close >= curr_20h * 0.98 and rsi14 > 62 and turnover > 200000000:
-                return "SELL", close, "Sideways Overbought Drop"
-        return None, 0, ""
-    except Exception as e:
-        print(f"Signal error {symbol} {e}")
-        return None, 0, ""
+def send_both(msg):
+    send_tg(msg)
+    time.sleep(1)
+    send_whatsapp(msg)
 
-def get_ltp_close(symbol):
-    """LTP on 5min close - Anti Hunt"""
+# ================= DATA FEED =================
+def get_dhan_candle(symbol):
+    if not DHAN_TOKEN or symbol not in DHAN_MAP:
+        return None
     try:
-        df = yf.download(symbol, period="1d", interval="5m", progress=False, auto_adjust=True, threads=False)
-        if df.empty:
+        headers = {"access-token": DHAN_TOKEN, "Content-Type": "application/json"}
+        url = "https://api.dhan.co/v2/charts/intraday"
+        today = datetime.now(IST).strftime("%Y-%m-%d")
+        payload = {
+            "securityId": str(DHAN_MAP[symbol]),
+            "exchangeSegment": "NSE_EQ",
+            "instrument": "EQUITY",
+            "interval": "15",
+            "oi": False,
+            "fromDate": today,
+            "toDate": today
+        }
+        r = requests.post(url, headers=headers, json=payload, timeout=10)
+        if r.status_code != 200:
             return None
-        df = safe_columns(df)
-        return float(df['Close'].iloc[-1])
+        data = r.json()
+        if "open" not in data or len(data.get("open", [])) < 50:
+            return None
+        df = pd.DataFrame({
+            "Open": data["open"], "High": data["high"], "Low": data["low"],
+            "Close": data["close"], "Volume": data["volume"]
+        })
+        return df
     except Exception as e:
-        print(f"LTP error {symbol} {e}")
+        print(f"Dhan fail {symbol}: {e}")
         return None
 
+def get_yf_candle(symbol):
+    try:
+        ticker = f"{symbol}.NS"
+        df = yf.download(ticker, period="10d", interval="15m", progress=False, auto_adjust=True)
+        if df is None or len(df) < 50:
+            return None
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        df = df.rename(columns={"Open":"Open","High":"High","Low":"Low","Close":"Close","Volume":"Volume"})
+        return df
+    except Exception as e:
+        print(f"YF fail {symbol}: {e}")
+        return None
+
+def get_candle(symbol):
+    df = get_dhan_candle(symbol)
+    if df is not None and len(df) >= 50:
+        print(f"{symbol}: DHAN REAL DATA")
+        return df
+    df = get_yf_candle(symbol)
+    if df is not None:
+        print(f"{symbol}: YF BACKUP")
+    return df
+
+# ================= STRATEGY V5 =================
+def analyze_stock(df):
+    try:
+        df["EMA20"] = ta.trend.ema_indicator(df["Close"], window=20)
+        df["EMA50"] = ta.trend.ema_indicator(df["Close"], window=50)
+        df["RSI"] = ta.momentum.rsi(df["Close"], window=14)
+        df["ATR"] = ta.volatility.average_true_range(df["High"], df["Low"], df["Close"], window=14)
+        df["ADX"] = ta.trend.adx(df["High"], df["Low"], df["Close"], window=14)
+        macd = ta.trend.MACD(df["Close"])
+        df["MACD"] = macd.macd()
+        df["MACD_SIG"] = macd.macd_signal()
+
+        last = df.iloc[-1]
+        prev = df.iloc[-2]
+
+        # BUY Conditions V5
+        buy_cond = (
+            last["EMA20"] > last["EMA50"] and
+            55 < last["RSI"] < 75 and
+            last["MACD"] > last["MACD_SIG"] and
+            last["ADX"] > 20 and
+            last["Close"] > last["EMA20"] and
+            prev["MACD"] <= prev["MACD_SIG"]
+        )
+        # SELL Conditions V5
+        sell_cond = (
+            last["EMA20"] < last["EMA50"] and
+            25 < last["RSI"] < 45 and
+            last["MACD"] < last["MACD_SIG"] and
+            last["ADX"] > 20 and
+            last["Close"] < last["EMA20"] and
+            prev["MACD"] >= prev["MACD_SIG"]
+        )
+
+        if buy_cond:
+            return "BUY", last["Close"], last["ATR"]
+        if sell_cond:
+            return "SELL", last["Close"], last["ATR"]
+        return None, None, None
+    except Exception as e:
+        print(f"Analyze error: {e}")
+        return None, None, None
+
 # ================= MAIN =================
-print("=== VIKAS FNO V5 + SEPARATE TG BOT START ===")
-regime, regime_reason = get_market_regime()
-print(f"REGIME DETECTED: {regime} | {regime_reason}")
+def main():
+    now = datetime.now(IST)
+    # Market time check: 9:15 to 15:30 IST Mon-Fri
+    if now.weekday() > 4:
+        print("Weekend - Skip")
+        return
+    # Optional: skip if outside market - still run if manual
+    # if now.hour < 9 or now.hour > 15:
+    #     print("Outside market")
 
-# Load existing
-rows = []
-if os.path.exists(REPORT_FILE):
-    try:
-        with open(REPORT_FILE, 'r', newline='', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            rows = list(reader)
-        print(f"Loaded {len(rows)} existing rows")
-    except Exception as e:
-        print(f"Load error {e}")
-        rows = []
+    active_file = os.path.join(REPORT_DIR, "active_trades.csv")
+    if os.path.exists(active_file):
+        active_df = pd.read_csv(active_file)
+    else:
+        active_df = pd.DataFrame(columns=["symbol","entry","sl","target","type","time"])
 
-# Check OPEN trades with Anti-Hunt Close based
-for r in rows:
-    if r.get('status') == 'OPEN':
-        try:
-            sym_full = r['symbol'] + ".NS"
-            ltp = get_ltp_close(sym_full)
-            if ltp is None:
-                print(f"No LTP for {r['symbol']}")
+    new_trades = []
+    for symbol in ALL_STOCKS:
+        clean = symbol.replace("-","").strip()
+        if clean in active_df["symbol"].values:
+            continue  # Already in trade
+
+        df = get_candle(clean)
+        if df is None or len(df) < 50:
+            continue
+
+        sig, price, atr = analyze_stock(df)
+        if sig is None:
+            continue
+
+        if atr is None or atr == 0:
+            atr = price * 0.01
+
+        if sig == "BUY":
+            sl = price - (atr * 1.5)
+            tgt = price + (atr * 3)
+        else:
+            sl = price + (atr * 1.5)
+            tgt = price - (atr * 3)
+
+        # Send instant
+        msg = f"🚀 *NEW TRADE* 🚀\n\n*{clean}* {sig}\nPrice: {price:.2f}\nSL: {sl:.2f}\nTarget: {tgt:.2f}\nTime: {now.strftime('%d-%m %H:%M')}\nSource: {'DHAN REAL' if clean in DHAN_MAP and DHAN_TOKEN else 'YF'}"
+        send_both(msg)
+
+        new_trades.append({"symbol":clean,"entry":price,"sl":sl,"target":tgt,"type":sig,"time":now.strftime("%Y-%m-%d %H:%M")})
+        time.sleep(0.5)
+
+    # Save active
+    if new_trades:
+        new_df = pd.DataFrame(new_trades)
+        combined = pd.concat([active_df, new_df], ignore_index=True)
+        combined.to_csv(active_file, index=False)
+        print(f"Saved {len(new_trades)} new trades")
+
+    # Check SL/Target for existing
+    if not active_df.empty:
+        remaining = []
+        for _, row in active_df.iterrows():
+            df = get_candle(row["symbol"])
+            if df is None:
+                remaining.append(row)
                 continue
-            entry = float(r['entry'])
-            disp_sl = float(r['sl'])
-            target = float(r['target'])
-            side = r.get('side', 'BUY')
-            # Anti-Hunt actual levels
-            if side == 'BUY':
-                actual_sl = disp_sl * (1 - HIDDEN_BUFFER_PCT / 100.0)
-                if ltp <= actual_sl:
-                    r['exit'] = str(round(ltp, 2))
-                    r['exit_time'] = datetime.datetime.now().strftime('%H:%M')
-                    r['pnl'] = str(round(ltp - entry, 2))
-                    r['status'] = 'SL_HIT_ANTI_HUNT'
-                    send_tg(f"🔴 *SL HIT* {r['symbol']} {side} @ {ltp}\nEntry: {entry}\nLoss: {r['pnl']}\nRegime: {regime}\nAnti-Hunt 1.4% protected")
-                    print(f"SL HIT {r['symbol']} {ltp}")
-                elif ltp >= target:
-                    r['exit'] = str(round(ltp, 2))
-                    r['exit_time'] = datetime.datetime.now().strftime('%H:%M')
-                    r['pnl'] = str(round(ltp - entry, 2))
-                    r['status'] = 'TARGET_HIT'
-                    send_tg(f"✅ *TARGET HIT* {r['symbol']} {side} @ {ltp}\nEntry: {entry}\nProfit: +{r['pnl']}\n1.5% Done")
-                    print(f"TARGET {r['symbol']}")
-            else:  # SELL
-                actual_sl = disp_sl * (1 + HIDDEN_BUFFER_PCT / 100.0)
-                if ltp >= actual_sl:
-                    r['exit'] = str(round(ltp, 2))
-                    r['exit_time'] = datetime.datetime.now().strftime('%H:%M')
-                    r['pnl'] = str(round(entry - ltp, 2))
-                    r['status'] = 'SL_HIT_ANTI_HUNT'
-                    send_tg(f"🔴 *SL HIT* {r['symbol']} {side} @ {ltp}\nEntry: {entry}\nLoss: {r['pnl']}\nRegime: {regime}")
-                elif ltp <= target:
-                    r['exit'] = str(round(ltp, 2))
-                    r['exit_time'] = datetime.datetime.now().strftime('%H:%M')
-                    r['pnl'] = str(round(entry - ltp, 2))
-                    r['status'] = 'TARGET_HIT'
-                    send_tg(f"✅ *TARGET HIT* {r['symbol']} {side} @ {ltp}\nEntry: {entry}\nProfit: +{r['pnl']}")
-        except Exception as e:
-            print(f"Check OPEN error {e}")
-            continue
-
-# Generate new signals
-new_trades = []
-for sym in SYMBOLS:
-    try:
-        clean = sym.replace(".NS", "")
-        # Skip if already open
-        if any(x.get('symbol') == clean and x.get('status') == 'OPEN' for x in rows):
-            continue
-        sig, price, reason = get_signal(sym, regime)
-        if sig and price > 0:
-            sl_pct = SIDEWAYS_SL if regime == "SIDEWAYS" else DISPLAY_SL_PCT
-            tgt_pct = SIDEWAYS_TARGET if regime == "SIDEWAYS" else TARGET_PCT
-            if sig == "BUY":
-                sl = round(price * (1 - sl_pct / 100), 2)
-                tgt = round(price * (1 + tgt_pct / 100), 2)
-                sl_actual = round(sl * (1 - HIDDEN_BUFFER_PCT / 100), 2)
+            last_price = df.iloc[-1]["Close"]
+            if row["type"] == "BUY":
+                if last_price <= row["sl"]:
+                    send_both(f"🔴 *SL HIT* {row['symbol']} @ {last_price:.2f} (Entry {row['entry']:.2f})")
+                elif last_price >= row["target"]:
+                    send_both(f"✅ *TARGET HIT* {row['symbol']} @ {last_price:.2f} (Entry {row['entry']:.2f})")
+                else:
+                    remaining.append(row)
             else:
-                sl = round(price * (1 + sl_pct / 100), 2)
-                tgt = round(price * (1 - tgt_pct / 100), 2)
-                sl_actual = round(sl * (1 + HIDDEN_BUFFER_PCT / 100), 2)
-            row = {
-                "symbol": clean, "side": sig, "regime": regime,
-                "entry": str(round(price, 2)), "sl": str(sl), "sl_actual": str(sl_actual),
-                "target": str(tgt), "entry_time": datetime.datetime.now().strftime('%H:%M'),
-                "exit": "", "exit_time": "", "pnl": "", "status": "OPEN",
-                "reason": f"{reason} | {regime_reason}"
-            }
-            rows.append(row)
-            new_trades.append(row)
-            send_tg(f"🚀 *NEW TRADE* {clean} *{sig}* @ {price}\nRegime: {regime}\n{regime_reason}\nReason: {reason}\nSL: {sl} (Hidden {sl_actual} Anti-Hunt)\nTarget: {tgt} (1.5%)\nTime: {row['entry_time']}")
-            print(f"NEW {clean} {sig} {price}")
-        time.sleep(0.2)
-    except Exception as e:
-        print(f"Loop error {sym} {e}")
-        continue
+                if last_price >= row["sl"]:
+                    send_both(f"🔴 *SL HIT* {row['symbol']} @ {last_price:.2f} (Entry {row['entry']:.2f})")
+                elif last_price <= row["target"]:
+                    send_both(f"✅ *TARGET HIT* {row['symbol']} @ {last_price:.2f} (Entry {row['entry']:.2f})")
+                else:
+                    remaining.append(row)
 
-# Square off at 3:15 PM IST = 09:45 UTC
-now_utc = datetime.datetime.utcnow()
-is_sq_time = (now_utc.hour == 9 and now_utc.minute >= 45) or (now_utc.hour == 10 and now_utc.minute <= 10)
-if is_sq_time:
-    sq_count = 0
-    for r in rows:
-        if r.get('status') == 'OPEN':
-            try:
-                ltp = get_ltp_close(r['symbol'] + ".NS") or float(r['entry'])
-                entry = float(r['entry'])
-                side = r.get('side', 'BUY')
-                pnl = round(ltp - entry, 2) if side == 'BUY' else round(entry - ltp, 2)
-                r['exit'] = str(round(ltp, 2))
-                r['exit_time'] = "15:15"
-                r['pnl'] = str(pnl)
-                r['status'] = "SQUARED_OFF_3_15"
-                sq_count += 1
-                send_tg(f"⏰ *SQ OFF 3:15* {r['symbol']} {side} @ {ltp}\nPnL: {pnl}")
-            except:
-                continue
-    send_tg(f"📊 *EOD SUMMARY FNO V5 Separate Bot*\nRegime: {regime}\n{regime_reason}\nSquared: {sq_count}\nDate: {TODAY}")
+        pd.DataFrame(remaining).to_csv(active_file, index=False)
 
-if new_trades and not is_sq_time:
-    send_tg(f"📈 *Market Regime Today: {regime}* - {regime_reason}\nNew Signals: {len(new_trades)}")
+    print("Scan Complete")
 
-# Save
-fieldnames = ["symbol","side","regime","entry","sl","sl_actual","target","entry_time","exit","exit_time","pnl","status","reason"]
-with open(REPORT_FILE, 'w', newline='', encoding='utf-8') as f:
-    writer = csv.DictWriter(f, fieldnames=fieldnames)
-    writer.writeheader()
-    writer.writerows(rows)
-
-print(f"=== DONE | Regime {regime} | New {len(new_trades)} | Total {len(rows)} | TG Separate Bot ===")
+if __name__ == "__main__":
+    main()
