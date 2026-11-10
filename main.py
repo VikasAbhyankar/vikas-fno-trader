@@ -188,17 +188,17 @@ def main():
         time.sleep(0.2)
 
     # 2. BUILD COMBINED MESSAGE WITH MARKET DIRECTION + WARNING
-    if new_trades:
+        if new_trades:
         # Warning logic
         warning = ""
         if mkt_status == "BEARISH" and any(t["type"]=="BUY" for t in new_trades):
-            warning = "\n⚠️ *WARNING: Market BEARISH but BUY signals! Trade with 50% size or WAIT for reversal.*\n"
+            warning = "\n⚠️ *WARNING: Market BEARISH but BUY signals! Trade with 50% size or WAIT.*\n"
         elif mkt_status == "BULLISH" and any(t["type"]=="SELL" for t in new_trades):
-            warning = "\n⚠️ *WARNING: Market BULLISH but SELL signals! Avoid shorts or use tight SL.*\n"
+            warning = "\n⚠️ *WARNING: Market BULLISH but SELL signals! Avoid shorts.*\n"
         elif mkt_status == "SIDEWAYS":
-            warning = "\n⚠️ *Market SIDEWAYS - Choppy! Use small qty, quick profits.*\n"
+            warning = "\n⚠️ *Market SIDEWAYS - Choppy! Use small qty.*\n"
         else:
-            warning = "\n✅ *Market aligned with signals - Good to trade.*\n"
+            warning = "\n✅ *Market aligned - Good to trade.*\n"
 
         header = f"📊 *FNO V5 MARKET REPORT* 📊\nTime: {now.strftime('%d-%m %H:%M IST')}\n\n*MARKET:* {mkt_status}\nDetail: {mkt_detail}\n{warning}\n🚀 *{len(new_trades)} NEW TRADES (DHAN REAL)* 🚀\n\n"
         body = ""
@@ -207,6 +207,16 @@ def main():
         footer = f"_Source: DHAN REAL NSE_"
         full_msg = header + body + footer
         send_both(full_msg)
+
+        save_df = pd.DataFrame(new_trades)
+        combined = pd.concat([active_df, save_df.drop(columns=["src"])], ignore_index=True)
+        combined.to_csv(active_file, index=False)
+        print(f"Saved {len(new_trades)} trades")
+    else:
+        # NEW - Daily alive message when 0 trades
+        alive_msg = f"📊 *FNO V5 DAILY CHECK* 📊\nTime: {now.strftime('%d-%m %H:%M IST')}\n\n*MARKET:* {mkt_status}\nDetail: {mkt_detail}\n\nNo new trades today - Market consolidating or signals already active.\nActive: {len(active_df)} trades\n\n✅ Bot alive & scanning 176 stocks - Dhan + YF backup working!"
+        send_both(alive_msg)
+        print("No new trades - Alive msg sent")
 
         # Save
         save_df = pd.DataFrame(new_trades)
