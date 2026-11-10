@@ -117,9 +117,14 @@ def get_dhan_candle(symbol):
 
 def get_yf_candle(sym):
     try:
-        fix = {"JINDALSTAIN":"JSL","JINDALSTEEL":"JINDALSTEL","POLICYBTR":"POLICYBZR","TATAMOTORS":"TATAMOTORS","UNITECEM":"ULTRACEMCO"}
+        import warnings
+        warnings.filterwarnings("ignore")
+        fix = {"JINDALSTAIN":"JSL","JINDALSTEEL":"JINDALSTEL","POLICYBTR":"POLICYBZR","TATAMOTORS":"TATAMOTORS","UNITECEM":"ULTRACEMCO","GMRPOWER":"GMRPOWER","ICICIPRULI":"ICICIPRULI","LTIM":"LTIM"}
+        # Skip known bad Yahoo symbols - Use Dhan only
+        if sym in ["GMRPOWER","ICICIPRULI","LTIM","TATAMOTORS"]:
+            return None  # Don't even try Yahoo, use Dhan
         ticker = f"{fix.get(sym, sym)}.NS"
-        df = yf.download(ticker, period="10d", interval="15m", progress=False, auto_adjust=True)
+        df = yf.download(ticker, period="10d", interval="15m", progress=False, auto_adjust=True, show_errors=False)
         if df is None or len(df) < 50: return None
         if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
         return df
