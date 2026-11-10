@@ -3,7 +3,6 @@ from datetime import datetime
 import yfinance as yf
 import ta
 
-# ================= CONFIG =================
 IST = pytz.timezone("Asia/Kolkata")
 REPORT_DIR = "reports"
 os.makedirs(REPORT_DIR, exist_ok=True)
@@ -14,7 +13,6 @@ DHAN_TOKEN = os.getenv("DHAN_ACCESS_TOKEN")
 WHATSAPP_APIKEY = os.getenv("WHATSAPP_APIKEY")
 FRIEND_PHONE = "919425074989"
 
-# ========= DHAN MAP - 176 STOCKS =========
 DHAN_MAP = {
     "360ONE": 13061, "ABB": 13, "ABCAPITAL": 21614, "ABFRL": 30108, "ADANIENT": 25, "ADANIPORTS": 15083,
     "ALKEM": 11703, "AMBER": 1185, "AMBUJACEM": 1270, "APLLTD": 25328, "APOLLOHOSP": 157, "ASIANPAINT": 236,
@@ -50,9 +48,8 @@ DHAN_MAP = {
     "JINDALSTAIN": 11236, "JINDALSTEEL": 6733, "POLICYBTR": 6656, "TATAMOTORS": 759782, "UNITECEM": 11532
 }
 
-ALL_STOCKS = ["360ONE","ABB","ABCAPITAL","ABFRL","ADANIENT","ADANIPORTS","ALKEM","AMBER","AMBUJACEM","APLLTD","APOLLOHOSP","ASIANPAINT","ASTRAL","ATGL","AUROPHARMA","AXISBANK","BAJAJ-AUTO","BAJAJFINSV","BAJAJHFL","BAJFINANCE","BANDHANBNK","BANKBARODA","BDL","BEL","BHARATFORG","BHARTIARTL","BHEL","BIKAJI","BIOCON","BLUESTARCO","BOSCHLTD","BPCL","BRITANNIA","BSE","BSOFT","CAMS","CANBK","CANFINHOME","CDSL","CGPOWER","CHAMBLFERT","CHOLAFIN","CIPLA","COALINDIA","COFORGE","COLPAL","CONCOR","CROMPTON","CUMMINSIND","CYIENT","DABUR","DALBHARAT","DEEPAKNTR","DELHIVERY","DIVISLAB","DIXON","DLF","DMART","DRREDDY","EICHERMOT","ETERNAL","EXIDEIND","FEDERALBNK","FORTIS","GAIL","GLENMARK","GMRAIRPORT","GODREJCP","GODREJPROP","GMRPOWER","GRANULES","GRASIM","HAL","HAVELLS","HCLTECH","HDFCAMC","HDFCBANK","HDFCLIFE","HEROMOTOCO","HINDALCO","HINDCOPPER","HINDPETRO","HINDUNILVR","HINDZINC","HUDCO","ICICIBANK","ICICIGI","ICICIPRULI","IDFCFIRSTB","IEX","IGL","INDHOTEL","INDIANB","INDIGO","INDUSINDBK","INDUSTOWER","INFY","IOC","IRB","IRCTC","IREDA","IRFC","ITC","JINDALSTAIN","JINDALSTEEL","JIOFIN","JSWENERGY","JSWSTEEL","KAYNES","KEI","KFINTECH","KOTAKBANK","KPITTECH","LALPATHLAB","LAURUSLABS","LICHSGFIN","LICI","LODHA","LT","LTF","LTIM","LUPIN","M&M","MANKIND","MANYAVAR","MARICO","MARUTI","MAXHEALTH","MCX","MFSL","MOTHERSON","MPHASIS","MUTHOOTFIN","NATIONALUM","NAUKRI","NBCC","NCC","NESTLEIND","NHPC","NMDC","NTPC","NYKAA","OBEROIRLTY","OFSS","OIL","ONGC","PAGEIND","PATANJALI","PAYTM","PERSISTENT","PETRONET","PFC","PHOENIXLTD","PIDILITIND","POLICYBTR","POLYCAB","POWERGRID","PRESTIGE","PTCIL","RECLTD","RELIANCE","SAIL","SBICARD","SBILIFE","SBIN","SHREECEM","SHRIRAMFIN","SIEMENS","SOLARINDS","SONACOMS","SRF","SUNPHARMA","SUPREMEIND","SYNGENE","TATACOMM","TATACONSUM","TATAELXSI","TATAMOTORS","TATAPOWER","TATASTEEL","TATATECH","TCS","TECHM","TITAN","TORNTPHARM","TORNTPOWER","TRENT","TVSMOTOR","UNIONBANK","UNITECEM","UNOMINDA","UPL","VEDL","VOLTAS","WIPRO","YESBANK","ZYDUSLIFE"]
+ALL_STOCKS = ["360ONE","ABB","ABCAPITAL","ABFRL","ADANIENT","ADANIPORTS","ALKEM","AMBER","AMBUJACEM","APLLTD","APOLLOHOSP","ASIANPAINT","ASTRAL","ATGL","AUROPHARMA","AXISBANK","BAJAJ-AUTO","BAJAJFINSV","BAJAJHFL","BAJFINANCE","BANDHANBNK","BANKBARODA","BDL","BEL","BHARATFORG","BHARTIARTL","BHEL","BIKAJI","BIOCON","BLUESTARCO","BOSCHLTD","BPCL","BRITANNIA","BSE","BSOFT","CAMS","CANBK","CANFINHOME","CDSL","CGPOWER","CHAMBLFERT","CHOLAFIN","CIPLA","COALINDIA","COFORGE","COLPAL","CONCOR","CROMPTON","CUMMINSIND","CYIENT","DABUR","DALBHARAT","DEEPAKNTR","DELHIVERY","DIVISLAB","DIXON","DLF","DMART","DRREDDY","EICHERMOT","ETERNAL","EXIDEIND","FEDERALBNK","FORTIS","GAIL","GLENMARK","GMRAIRPORT","GODREJCP","GODREJPROP","GRANULES","GRASIM","HAL","HAVELLS","HCLTECH","HDFCAMC","HDFCBANK","HDFCLIFE","HEROMOTOCO","HINDALCO","HINDCOPPER","HINDPETRO","HINDUNILVR","HINDZINC","HUDCO","ICICIBANK","ICICIGI","IDFCFIRSTB","IEX","IGL","INDHOTEL","INDIANB","INDIGO","INDUSINDBK","INDUSTOWER","INFY","IOC","IRB","IRCTC","IREDA","IRFC","ITC","JINDALSTAIN","JINDALSTEEL","JIOFIN","JSWENERGY","JSWSTEEL","KAYNES","KEI","KFINTECH","KOTAKBANK","KPITTECH","LALPATHLAB","LAURUSLABS","LICHSGFIN","LICI","LODHA","LT","LTF","LUPIN","M&M","MANKIND","MANYAVAR","MARICO","MARUTI","MAXHEALTH","MCX","MFSL","MOTHERSON","MPHASIS","MUTHOOTFIN","NATIONALUM","NAUKRI","NBCC","NCC","NESTLEIND","NHPC","NMDC","NTPC","NYKAA","OBEROIRLTY","OFSS","OIL","ONGC","PAGEIND","PATANJALI","PAYTM","PERSISTENT","PETRONET","PFC","PHOENIXLTD","PIDILITIND","POLYCAB","POWERGRID","PRESTIGE","PTCIL","RECLTD","RELIANCE","SAIL","SBICARD","SBILIFE","SBIN","SHREECEM","SHRIRAMFIN","SIEMENS","SOLARINDS","SONACOMS","SRF","SUNPHARMA","SUPREMEIND","SYNGENE","TATACOMM","TATACONSUM","TATAELXSI","TATAPOWER","TATASTEEL","TATATECH","TCS","TECHM","TITAN","TORNTPHARM","TORNTPOWER","TRENT","TVSMOTOR","UNIONBANK","UNOMINDA","UPL","VEDL","VOLTAS","WIPRO","YESBANK","ZYDUSLIFE"]
 
-# ================= MESSAGING =================
 def send_tg(msg):
     if not BOT_TOKEN or not CHAT_ID: return
     try:
@@ -74,10 +71,8 @@ def send_both(msg):
     time.sleep(1)
     send_whatsapp(msg)
 
-# ================= MARKET DIRECTION =================
 def get_market_direction():
     try:
-        # NIFTY 50
         nifty = yf.download("^NSEI", period="10d", interval="15m", progress=False, auto_adjust=True)
         if len(nifty) < 50: return "SIDEWAYS", "NIFTY data low", 0
         if isinstance(nifty.columns, pd.MultiIndex): nifty.columns = nifty.columns.get_level_values(0)
@@ -89,7 +84,6 @@ def get_market_direction():
         ema20 = float(last["EMA20"])
         ema50 = float(last["EMA50"])
         close = float(last["Close"])
-        
         if ema20 > ema50 and rsi > 55 and close > ema20:
             return "BULLISH", f"NIFTY {close:.0f} | EMA20 {ema20:.0f} > EMA50 {ema50:.0f} | RSI {rsi:.0f}", rsi
         elif ema20 < ema50 and rsi < 45 and close < ema20:
@@ -99,7 +93,6 @@ def get_market_direction():
     except Exception as e:
         return "SIDEWAYS", f"Market check fail {e}", 50
 
-# ================= DATA FEED =================
 def get_dhan_candle(symbol):
     if not DHAN_TOKEN or symbol not in DHAN_MAP: return None
     try:
@@ -119,10 +112,7 @@ def get_yf_candle(sym):
     try:
         import warnings
         warnings.filterwarnings("ignore")
-        fix = {"JINDALSTAIN":"JSL","JINDALSTEEL":"JINDALSTEL","POLICYBTR":"POLICYBZR","TATAMOTORS":"TATAMOTORS","UNITECEM":"ULTRACEMCO","GMRPOWER":"GMRPOWER","ICICIPRULI":"ICICIPRULI","LTIM":"LTIM"}
-        # Skip known bad Yahoo symbols - Use Dhan only
-        if sym in ["GMRPOWER","ICICIPRULI","LTIM","TATAMOTORS"]:
-            return None  # Don't even try Yahoo, use Dhan
+        fix = {"JINDALSTAIN":"JSL","JINDALSTEEL":"JINDALSTEL","POLICYBTR":"POLICYBZR","TATAMOTORS":"TATAMOTORS","UNITECEM":"ULTRACEMCO"}
         ticker = f"{fix.get(sym, sym)}.NS"
         df = yf.download(ticker, period="10d", interval="15m", progress=False, auto_adjust=True, show_errors=False)
         if df is None or len(df) < 50: return None
@@ -156,19 +146,14 @@ def analyze_stock(df):
         return None, None, None
     except: return None, None, None
 
-# ================= MAIN =================
 def main():
     now = datetime.now(IST)
     if now.weekday() > 4:
         print("Weekend"); return
-
-    # 1. MARKET DIRECTION
     mkt_status, mkt_detail, mkt_rsi = get_market_direction()
     print(f"MARKET: {mkt_status} - {mkt_detail}")
-
     active_file = os.path.join(REPORT_DIR, "active_trades.csv")
     active_df = pd.read_csv(active_file) if os.path.exists(active_file) else pd.DataFrame(columns=["symbol","entry","sl","target","type","time"])
-
     new_trades = []
     for symbol in ALL_STOCKS:
         clean = symbol.strip()
@@ -187,9 +172,7 @@ def main():
         new_trades.append({"symbol":clean,"entry":price,"sl":sl,"target":tgt,"type":sig,"time":now.strftime("%Y-%m-%d %H:%M"),"src":src})
         time.sleep(0.2)
 
-    # 2. BUILD COMBINED MESSAGE WITH MARKET DIRECTION + WARNING
-        if new_trades:
-        # Warning logic
+    if new_trades:
         warning = ""
         if mkt_status == "BEARISH" and any(t["type"]=="BUY" for t in new_trades):
             warning = "\n⚠️ *WARNING: Market BEARISH but BUY signals! Trade with 50% size or WAIT.*\n"
@@ -199,7 +182,6 @@ def main():
             warning = "\n⚠️ *Market SIDEWAYS - Choppy! Use small qty.*\n"
         else:
             warning = "\n✅ *Market aligned - Good to trade.*\n"
-
         header = f"📊 *FNO V5 MARKET REPORT* 📊\nTime: {now.strftime('%d-%m %H:%M IST')}\n\n*MARKET:* {mkt_status}\nDetail: {mkt_detail}\n{warning}\n🚀 *{len(new_trades)} NEW TRADES (DHAN REAL)* 🚀\n\n"
         body = ""
         for t in new_trades:
@@ -207,24 +189,15 @@ def main():
         footer = f"_Source: DHAN REAL NSE_"
         full_msg = header + body + footer
         send_both(full_msg)
-
         save_df = pd.DataFrame(new_trades)
         combined = pd.concat([active_df, save_df.drop(columns=["src"])], ignore_index=True)
         combined.to_csv(active_file, index=False)
         print(f"Saved {len(new_trades)} trades")
     else:
-        # NEW - Daily alive message when 0 trades
         alive_msg = f"📊 *FNO V5 DAILY CHECK* 📊\nTime: {now.strftime('%d-%m %H:%M IST')}\n\n*MARKET:* {mkt_status}\nDetail: {mkt_detail}\n\nNo new trades today - Market consolidating or signals already active.\nActive: {len(active_df)} trades\n\n✅ Bot alive & scanning 176 stocks - Dhan + YF backup working!"
         send_both(alive_msg)
         print("No new trades - Alive msg sent")
 
-        # Save
-        save_df = pd.DataFrame(new_trades)
-        combined = pd.concat([active_df, save_df.drop(columns=["src"])], ignore_index=True)
-        combined.to_csv(active_file, index=False)
-        print(f"Saved {len(new_trades)} trades")
-
-    # 3. Check SL/TGT
     if not active_df.empty:
         remaining = []
         for _, row in active_df.iterrows():
@@ -249,7 +222,6 @@ def main():
                     hit = True
             if not hit: remaining.append(row)
         pd.DataFrame(remaining).to_csv(active_file, index=False)
-
     print("Scan Complete")
 
 if __name__ == "__main__":
