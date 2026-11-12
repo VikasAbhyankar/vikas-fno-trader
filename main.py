@@ -8,10 +8,32 @@ REPORT_DIR = "reports"
 os.makedirs(REPORT_DIR, exist_ok=True)
 
 BOT_TOKEN = os.getenv("TELEGRAM_FNO_BOT_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_FNO_CHAT_ID")
+CHAT_ID_ENV = os.getenv("TELEGRAM_FNO_CHAT_ID") # Your main ID from GitHub Secrets
 DHAN_TOKEN = os.getenv("DHAN_ACCESS_TOKEN")
 WHATSAPP_APIKEY = os.getenv("WHATSAPP_APIKEY")
 FRIEND_PHONE = "919425074989"
+
+# ========== MULTI-USER LIST - Bala = Prashant = Same ==========
+# Your 2 friends + your own ID from env
+FRIEND_TELEGRAM_IDS = [
+    "5239892901",  # Bala / Prashant
+    "7507879668",  # Nishant
+]
+
+def get_all_chat_ids():
+    ids = []
+    if CHAT_ID_ENV:
+        # Support comma separated IDs in env also
+        for x in str(CHAT_ID_ENV).split(","):
+            x = x.strip()
+            if x: ids.append(x)
+    # Add friends
+    for fid in FRIEND_TELEGRAM_IDS:
+        if fid not in ids:
+            ids.append(fid)
+    return ids
+
+ALL_CHAT_IDS = get_all_chat_ids()
 
 DHAN_MAP = {
     "360ONE": 13061, "ABB": 13, "ABCAPITAL": 21614, "ABFRL": 30108, "ADANIENT": 25, "ADANIPORTS": 15083,
@@ -51,10 +73,16 @@ DHAN_MAP = {
 ALL_STOCKS = ["360ONE","ABB","ABCAPITAL","ABFRL","ADANIENT","ADANIPORTS","ALKEM","AMBER","AMBUJACEM","APLLTD","APOLLOHOSP","ASIANPAINT","ASTRAL","ATGL","AUROPHARMA","AXISBANK","BAJAJ-AUTO","BAJAJFINSV","BAJAJHFL","BAJFINANCE","BANDHANBNK","BANKBARODA","BDL","BEL","BHARATFORG","BHARTIARTL","BHEL","BIKAJI","BIOCON","BLUESTARCO","BOSCHLTD","BPCL","BRITANNIA","BSE","BSOFT","CAMS","CANBK","CANFINHOME","CDSL","CGPOWER","CHAMBLFERT","CHOLAFIN","CIPLA","COALINDIA","COFORGE","COLPAL","CONCOR","CROMPTON","CUMMINSIND","CYIENT","DABUR","DALBHARAT","DEEPAKNTR","DELHIVERY","DIVISLAB","DIXON","DLF","DMART","DRREDDY","EICHERMOT","ETERNAL","EXIDEIND","FEDERALBNK","FORTIS","GAIL","GLENMARK","GMRAIRPORT","GODREJCP","GODREJPROP","GRANULES","GRASIM","HAL","HAVELLS","HCLTECH","HDFCAMC","HDFCBANK","HDFCLIFE","HEROMOTOCO","HINDALCO","HINDCOPPER","HINDPETRO","HINDUNILVR","HINDZINC","HUDCO","ICICIBANK","ICICIGI","IDFCFIRSTB","IEX","IGL","INDHOTEL","INDIANB","INDIGO","INDUSINDBK","INDUSTOWER","INFY","IOC","IRB","IRCTC","IREDA","IRFC","ITC","JINDALSTAIN","JINDALSTEEL","JIOFIN","JSWENERGY","JSWSTEEL","KAYNES","KEI","KFINTECH","KOTAKBANK","KPITTECH","LALPATHLAB","LAURUSLABS","LICHSGFIN","LICI","LODHA","LT","LTF","LUPIN","M&M","MANKIND","MANYAVAR","MARICO","MARUTI","MAXHEALTH","MCX","MFSL","MOTHERSON","MPHASIS","MUTHOOTFIN","NATIONALUM","NAUKRI","NBCC","NCC","NESTLEIND","NHPC","NMDC","NTPC","NYKAA","OBEROIRLTY","OFSS","OIL","ONGC","PAGEIND","PATANJALI","PAYTM","PERSISTENT","PETRONET","PFC","PHOENIXLTD","PIDILITIND","POLYCAB","POWERGRID","PRESTIGE","PTCIL","RECLTD","RELIANCE","SAIL","SBICARD","SBILIFE","SBIN","SHREECEM","SHRIRAMFIN","SIEMENS","SOLARINDS","SONACOMS","SRF","SUNPHARMA","SUPREMEIND","SYNGENE","TATACOMM","TATACONSUM","TATAELXSI","TATAPOWER","TATASTEEL","TATATECH","TCS","TECHM","TITAN","TORNTPHARM","TORNTPOWER","TRENT","TVSMOTOR","UNIONBANK","UNOMINDA","UPL","VEDL","VOLTAS","WIPRO","YESBANK","ZYDUSLIFE"]
 
 def send_tg(msg):
-    if not BOT_TOKEN or not CHAT_ID: return
+    if not BOT_TOKEN or not ALL_CHAT_IDS: return
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        requests.post(url, json={"chat_id": CHAT_ID, "text": msg, "parse_mode": "Markdown"}, timeout=15)
+        for chat_id in ALL_CHAT_IDS:
+            try:
+                requests.post(url, json={"chat_id": str(chat_id).strip(), "text": msg, "parse_mode": "Markdown"}, timeout=15)
+                time.sleep(0.5)
+            except Exception as e: 
+                print(f"TG err for {chat_id}: {e}")
+        print(f"Sent TG to {len(ALL_CHAT_IDS)} users: {ALL_CHAT_IDS}")
     except Exception as e: print(f"TG err {e}")
 
 def send_whatsapp(msg):
@@ -182,11 +210,11 @@ def main():
             warning = "\n⚠️ *Market SIDEWAYS - Choppy! Use small qty.*\n"
         else:
             warning = "\n✅ *Market aligned - Good to trade.*\n"
-        header = f"📊 *FNO V5 MARKET REPORT* 📊\nTime: {now.strftime('%d-%m %H:%M IST')}\n\n*MARKET:* {mkt_status}\nDetail: {mkt_detail}\n{warning}\n🚀 *{len(new_trades)} NEW TRADES (DHAN REAL)* 🚀\n\n"
+        header = f"📊 *FNO V6 MULTI-USER REPORT* 📊\nTime: {now.strftime('%d-%m %H:%M IST')}\n\n*MARKET:* {mkt_status}\nDetail: {mkt_detail}\n{warning}\n🚀 *{len(new_trades)} NEW TRADES (DHAN REAL)* 🚀\n\n"
         body = ""
         for t in new_trades:
             body += f"*{t['symbol']}* {t['type']} @ {t['entry']:.2f}\nSL {t['sl']:.2f} | TGT {t['target']:.2f}\n\n"
-        footer = f"_Source: DHAN REAL NSE_"
+        footer = f"_Source: DHAN REAL NSE | Sent to {len(ALL_CHAT_IDS)} users_"
         full_msg = header + body + footer
         send_both(full_msg)
         save_df = pd.DataFrame(new_trades)
@@ -194,7 +222,7 @@ def main():
         combined.to_csv(active_file, index=False)
         print(f"Saved {len(new_trades)} trades")
     else:
-        alive_msg = f"📊 *FNO V5 DAILY CHECK* 📊\nTime: {now.strftime('%d-%m %H:%M IST')}\n\n*MARKET:* {mkt_status}\nDetail: {mkt_detail}\n\nNo new trades today - Market consolidating or signals already active.\nActive: {len(active_df)} trades\n\n✅ Bot alive & scanning 176 stocks - Dhan + YF backup working!"
+        alive_msg = f"📊 *FNO V6 DAILY CHECK* 📊\nTime: {now.strftime('%d-%m %H:%M IST')}\n\n*MARKET:* {mkt_status}\nDetail: {mkt_detail}\n\nNo new trades today - Market consolidating or signals already active.\nActive: {len(active_df)} trades\n\n✅ Bot alive & scanning 176 stocks - Sent to Bala, Nishant + You"
         send_both(alive_msg)
         print("No new trades - Alive msg sent")
 
