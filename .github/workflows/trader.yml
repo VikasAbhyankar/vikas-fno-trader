@@ -1,9 +1,10 @@
-name: FNO V5 DHAN REAL + WA
+name: FNO V7 DHAN REAL + WA
 
 on:
   schedule:
-    - cron: '0,15,30,45 4-9 * * 1-5'
-    - cron: '0,15 10 * * 1-5'
+    - cron: '30 3 * * 1-5'      # 9:00 AM IST - Pre-Open / First Scan
+    - cron: '0,15,30,45 4-9 * * 1-5'  # 9:30 AM - 3:00 PM IST - Every 15 min
+    - cron: '0,15 10 * * 1-5'   # 3:30 PM - 3:45 PM IST - Closing
   workflow_dispatch:
 
 permissions:
@@ -18,16 +19,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-      - run: pip install yfinance pandas ta requests pytz
-      - env:
+      - name: Install deps
+        run: pip install --quiet yfinance pandas ta requests pytz
+      - name: Run V7 Screener
+        env:
           TELEGRAM_FNO_BOT_TOKEN: ${{ secrets.TELEGRAM_FNO_BOT_TOKEN }}
           TELEGRAM_FNO_CHAT_ID: ${{ secrets.TELEGRAM_FNO_CHAT_ID }}
           DHAN_ACCESS_TOKEN: ${{ secrets.DHAN_ACCESS_TOKEN }}
           WHATSAPP_APIKEY: ${{ secrets.WHATSAPP_APIKEY }}
         run: python main.py
-      - run: |
-          git config --global user.name "FNO V5 DHAN"
+      - name: Save Reports
+        if: always()
+        run: |
+          git config --global user.name "FNO V7 DHAN"
           git config --global user.email "fno-dhan@github.com"
-          git add reports/
-          git commit -m "DHAN REAL $(date -u)" || echo "No changes"
-          git push
+          mkdir -p reports
+          git add reports/ || true
+          git commit -m "V7 DHAN REAL $(date -u)" || echo "No changes"
+          git push || echo "Push failed - Telegram already sent, ignore"
