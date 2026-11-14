@@ -1,339 +1,358 @@
-import os, requests, time, pandas as pd, pytz
-from datetime import datetime
+# ============================================================
+# FNO V8.1 FINAL - AMRTS - Upstox Real-Time + Yahoo History
+# Timing: 9:45 AM / 3:15 PM / 4:30 PM IST ONLY
+# Data: Upstox Live (Entry, Nifty, VIX) + Yahoo History (EMA, RSI, ADX)
+# Token: Upstox 1-Year Analytical - No Daily Refresh - Exp 2027-11-14
+# Capital: Rs 5L Paper, Risk 1% = Rs 5000, Max 2 Trades
+# Features: Regime + Choppy + Sideways S/R + Smart SL Anti-Hunt
+#           + Sector + Gap + Event + Trailing + Top 2
+# Telegram: Your ID (Secret) + 5239892901 + 9000971028
+# ============================================================
+import os, json, requests, traceback
+from datetime import datetime, timedelta
+import pytz
 import yfinance as yf
-import ta
+import pandas as pd
+import numpy as np
 
 IST = pytz.timezone("Asia/Kolkata")
-REPORT_DIR = "reports"
-os.makedirs(REPORT_DIR, exist_ok=True)
+CAPITAL = 500000
+RISK_PER_TRADE = 5000
+MAX_TRADES = 2
 
-BOT_TOKEN = os.getenv("TELEGRAM_FNO_BOT_TOKEN")
-CHAT_ID_ENV = os.getenv("TELEGRAM_FNO_CHAT_ID")
-DHAN_TOKEN = os.getenv("DHAN_ACCESS_TOKEN")
-WHATSAPP_APIKEY = os.getenv("WHATSAPP_APIKEY")
-FRIEND_PHONE = "919425074989"
+BOT_TOKEN = os.getenv("TELEGRAM_FNO_BOT_TOKEN", "")
+CHAT_ID_ENV = os.getenv("TELEGRAM_FNO_CHAT_ID", "")
+UPSTOX_TOKEN = os.getenv("UPSTOX_ACCESS_TOKEN", "")
+UPSTOX_EXPIRY = os.getenv("UPSTOX_TOKEN_EXPIRY", "2027-11-14")
+UPSTOX_ENABLED = bool(UPSTOX_TOKEN)
+UPSTOX_BASE = "https://api.upstox.com/v3"
 
-# ========== V7 MULTI-USER LIST - FIXED ==========
-# 5239892901 = Bala / Prashant
-# 9000971028 = New Person (REPLACED 7507879668 Nishant)
-FRIEND_TELEGRAM_IDS = [
-    "5239892901",
-    "9000971028",
-]
-
-def get_all_chat_ids():
-    ids = []
+FRIEND_IDS = ["5239892901", "9000971028"]
+def get_all_ids():
+    ids=[]
     if CHAT_ID_ENV:
         for x in str(CHAT_ID_ENV).split(","):
-            x = x.strip()
-            if x and x not in ids:
-                ids.append(x)
-    for fid in FRIEND_TELEGRAM_IDS:
-        if fid not in ids:
-            ids.append(fid)
+            x=x.strip()
+            if x and x not in ids: ids.append(x)
+    for f in FRIEND_IDS:
+        if f not in ids: ids.append(f)
     return ids
+ALL_IDS = get_all_ids()
 
-ALL_CHAT_IDS = get_all_chat_ids()
+# ========== UPSTOX CLIENT - INSIDE MAIN.PY - NO SEPARATE FILE NEEDED ==========
+def upstox_headers():
+    return {"Authorization": f"Bearer {UPSTOX_TOKEN}", "Accept": "application/json"}
+def upstox_live_price(instrument_key):
+    if not UPSTOX_ENABLED: return None
+    try:
+        r=requests.get(f"{UPSTOX_BASE}/market-quote/quotes", headers=upstox_headers(),
+                       params={"instrument_key": instrument_key}, timeout=10)
+        if r.status_code!=200:
+            print(f"Upstox fail {instrument_key} {r.status_code} {r.text[:150]}")
+            return None
+        data=r.json().get("data", {})
+        q=data.get(instrument_key, {})
+        lp=q.get("last_price") or q.get("ltp")
+        return float(lp) if lp else None
+    except Exception as e:
+        print(f"Upstox error {e}"); return None
+def upstox_candles(instrument_key, interval="15minute"):
+    if not UPSTOX_ENABLED: return None
+    try:
+        r=requests.get(f"{UPSTOX_BASE}/market-candle/intraday/{instrument_key}/{interval}",
+                       headers=upstox_headers(), timeout=15)
+        if r.status_code!=200: return None
+        return r.json().get("data", {}).get("candles", [])
+    except: return None
+def to_upstox_key(yahoo_sym):
+    base=yahoo_sym.replace(".NS","").replace("-","_")
+    return f"NSE_EQ|{base}"
+def upstox_token_health():
+    try:
+        exp=datetime.strptime(UPSTOX_EXPIRY, "%Y-%m-%d").date()
+        today=datetime.now(IST).date()
+        days=(exp-today).days
+        if days<0: return "EXPIRED", days
+        if days<30: return f"EXPIRING in {days}d - Renew Soon", days
+        return f"OK - {days}d left", days
+    except: return "OK", 999
+# ============================================================
 
-DHAN_MAP = {
-    "360ONE": 13061, "ABB": 13, "ABCAPITAL": 21614, "ABFRL": 30108, "ADANIENT": 25, "ADANIPORTS": 15083,
-    "ALKEM": 11703, "AMBER": 1185, "AMBUJACEM": 1270, "APLLTD": 25328, "APOLLOHOSP": 157, "ASIANPAINT": 236,
-    "ASTRAL": 14418, "ATGL": 6066, "AUROPHARMA": 275, "AXISBANK": 5900, "BAJAJ-AUTO": 16669, "BAJAJFINSV": 16675,
-    "BAJAJHFL": 25270, "BAJFINANCE": 317, "BANDHANBNK": 2263, "BANKBARODA": 4668, "BDL": 2144, "BEL": 383,
-    "BHARATFORG": 422, "BHARTIARTL": 10604, "BHEL": 438, "BIKAJI": 11966, "BIOCON": 11373, "BLUESTARCO": 8311,
-    "BOSCHLTD": 2181, "BPCL": 526, "BRITANNIA": 547, "BSE": 19585, "BSOFT": 6994, "CAMS": 342, "CANBK": 10794,
-    "CANFINHOME": 583, "CDSL": 21174, "CGPOWER": 760, "CHAMBLFERT": 637, "CHOLAFIN": 685, "CIPLA": 694,
-    "COALINDIA": 20374, "COFORGE": 11543, "COLPAL": 15141, "CONCOR": 4749, "CROMPTON": 17094, "CUMMINSIND": 1901,
-    "CYIENT": 5748, "DABUR": 772, "DALBHARAT": 8075, "DEEPAKNTR": 19943, "DELHIVERY": 9599, "DIVISLAB": 10940,
-    "DIXON": 21690, "DLF": 14732, "DMART": 19913, "DRREDDY": 881, "EICHERMOT": 910, "ETERNAL": 5097, "EXIDEIND": 676,
-    "FEDERALBNK": 1023, "FORTIS": 14592, "GAIL": 4717, "GLENMARK": 7406, "GMRAIRPORT": 13528, "GODREJCP": 10099,
-    "GODREJPROP": 17875, "GRANULES": 11872, "GRASIM": 1232, "HAL": 2303, "HAVELLS": 9819, "HCLTECH": 7229,
-    "HDFCAMC": 4244, "HDFCBANK": 1333, "HDFCLIFE": 467, "HEROMOTOCO": 1348, "HINDALCO": 1363, "HINDCOPPER": 17939,
-    "HINDPETRO": 1406, "HINDUNILVR": 1394, "HINDZINC": 1424, "HUDCO": 20825, "ICICIBANK": 4963, "ICICIGI": 21770,
-    "IDFCFIRSTB": 11184, "IEX": 220, "IGL": 11262, "INDHOTEL": 1512, "INDIANB": 14309, "INDIGO": 11195,
-    "INDUSINDBK": 5258, "INDUSTOWER": 29135, "INFY": 1594, "IOC": 1624, "IRB": 15313, "IRCTC": 13611, "IREDA": 20261,
-    "IRFC": 2029, "ITC": 1660, "JIOFIN": 18143, "JSL": 11236, "JSWENERGY": 17869, "JSWSTEEL": 11723, "KAYNES": 12092,
-    "KEI": 13310, "KFINTECH": 13359, "KOTAKBANK": 1922, "KPITTECH": 9683, "LALPATHLAB": 11654, "LAURUSLABS": 19234,
-    "LICHSGFIN": 1997, "LICI": 9480, "LODHA": 3220, "LT": 11483, "LTF": 24948, "LUPIN": 10440, "M&M": 2031,
-    "MANKIND": 15380, "MANYAVAR": 8167, "MARICO": 4067, "MARUTI": 10999, "MAXHEALTH": 22377, "MCX": 31181,
-    "MFSL": 2142, "MOTHERSON": 4204, "MPHASIS": 4503, "MUTHOOTFIN": 23650, "NATIONALUM": 6364, "NAUKRI": 13751,
-    "NBCC": 31415, "NCC": 2319, "NESTLEIND": 17963, "NHPC": 17400, "NMDC": 15332, "NTPC": 11630, "NYKAA": 6545,
-    "OBEROIRLTY": 20242, "OFSS": 10738, "OIL": 17438, "ONGC": 2475, "PAGEIND": 14413, "PATANJALI": 17029,
-    "PAYTM": 6705, "PERSISTENT": 18365, "PETRONET": 11351, "PFC": 14299, "PHOENIXLTD": 14552, "PIDILITIND": 2664,
-    "POLYCAB": 9590, "POWERGRID": 14977, "PRESTIGE": 20302, "PTCIL": 16682, "RECLTD": 15355, "RELIANCE": 2885,
-    "SAIL": 2963, "SBICARD": 17971, "SBILIFE": 21808, "SBIN": 3045, "SHREECEM": 3103, "SHRIRAMFIN": 4306,
-    "SIEMENS": 3150, "SOLARINDS": 13332, "SONACOMS": 4684, "SRF": 3273, "SUNPHARMA": 3351, "SUPREMEIND": 3363,
-    "SYNGENE": 10243, "TATACOMM": 3721, "TATACONSUM": 3432, "TATAELXSI": 3411, "TATAPOWER": 3426, "TATASTEEL": 3499,
-    "TATATECH": 20293, "TCS": 11536, "TECHM": 13538, "TITAN": 3506, "TORNTPHARM": 3518, "TORNTPOWER": 13786,
-    "TRENT": 1964, "TVSMOTOR": 8479, "UNIONBANK": 10753, "UNOMINDA": 14154, "UPL": 11287, "VEDL": 3063,
-    "VOLTAS": 3718, "WIPRO": 3787, "YESBANK": 11915, "ZYDUSLIFE": 7929,
-    "JINDALSTAIN": 11236, "JINDALSTEEL": 6733, "POLICYBTR": 6656, "TATAMOTORS": 759782, "UNITECEM": 11532
+FNO_STOCKS = [
+"RELIANCE.NS","TCS.NS","HDFCBANK.NS","INFY.NS","ICICIBANK.NS","SBIN.NS","LT.NS","ITC.NS",
+"TITAN.NS","AXISBANK.NS","KOTAKBANK.NS","HINDUNILVR.NS","ASIANPAINT.NS","MARUTI.NS",
+"BAJFINANCE.NS","BAJAJFINSV.NS","TATAMOTORS.NS","TATASTEEL.NS","JSWSTEEL.NS","HINDALCO.NS",
+"NTPC.NS","POWERGRID.NS","ONGC.NS","COALINDIA.NS","BPCL.NS","ADANIENT.NS","ADANIPORTS.NS",
+"GRASIM.NS","ULTRACEMCO.NS","SHRIRAMFIN.NS","M&M.NS","EICHERMOT.NS","HEROMOTOCO.NS",
+"BAJAJ-AUTO.NS","DRREDDY.NS","SUNPHARMA.NS","CIPLA.NS","DIVISLAB.NS","APOLLOHOSP.NS",
+"WIPRO.NS","TECHM.NS","HCLTECH.NS","LTIM.NS","TATACONSUM.NS","NESTLEIND.NS","BRITANNIA.NS",
+"VEDL.NS","SAIL.NS","NHPC.NS","TATAPOWER.NS","SIEMENS.NS","HAVELLS.NS","BEL.NS","HAL.NS",
+"IRCTC.NS","ZOMATO.NS","PAYTM.NS","NYKAA.NS","DMART.NS","TRENT.NS","PIDILIT.NS","AMBUJACEM.NS",
+"ACC.NS","BHARTIARTL.NS","JIOFIN.NS","HDFCLIFE.NS","SBILIFE.NS","ICICIPRULI.NS","LICI.NS",
+"RECLTD.NS","PFC.NS","CANBK.NS","PNB.NS","BANKBARODA.NS","INDUSINDBK.NS","FEDERALBNK.NS",
+"IDFCFIRSTB.NS","MUTHOOTFIN.NS","CHOLAFIN.NS","TATACHEM.NS","UPL.NS","SRF.NS","PIIND.NS",
+"ALKEM.NS","TORNTPHARM.NS","AUROPHARMA.NS","LUPIN.NS","BIOCON.NS","COLPAL.NS","DABUR.NS",
+"MARICO.NS","GODREJCP.NS","UBL.NS","INDIGO.NS","MCDOWELL-N.NS","TATACOMM.NS","BOSCHLTD.NS",
+"ABB.NS","CUMMINSIND.NS","LTTS.NS","PERSISTENT.NS","COFORGE.NS","MPHASIS.NS","HINDPETRO.NS",
+"GAIL.NS","PETRONET.NS","IGL.NS","MGL.NS","CONCOR.NS","NMDC.NS","HINDCOPPER.NS","JINDALSTEL.NS",
+"ASHOKLEY.NS","TVSMOTOR.NS","BALKRISIND.NS","MRF.NS","APOLLOTYRE.NS","EXIDEIND.NS","AMARAJABAT.NS",
+"VOLTAS.NS","BLUESTARCO.NS","CROMPTON.NS","DIXON.NS","KAYNES.NS","CGPOWER.NS","SUZLON.NS",
+"BHEL.NS","IRFC.NS","RVNL.NS","MAZAGON.NS","COCHINSHIP.NS","HUDCO.NS","IREDA.NS","NBCC.NS",
+"PNBHOUSING.NS","MANAPPURAM.NS","POONAWALLA.NS","ABCAPITAL.NS","AUBANK.NS","YESBANK.NS",
+"UNIONBANK.NS","INDIANB.NS","BANKINDIA.NS","MAHABANK.NS","CENTRALBK.NS","IOB.NS","UCOBANK.NS",
+"PSB.NS","J&KBANK.NS","KARURVYSYA.NS","CITYUNION.NS","RBLBANK.NS","BANDHANBNK.NS"
+]
+
+SECTOR_MAP = {
+"RELIANCE.NS":"^CNXENERGY","HDFCBANK.NS":"^NSEBANK","ICICIBANK.NS":"^NSEBANK","SBIN.NS":"^NSEBANK",
+"AXISBANK.NS":"^NSEBANK","KOTAKBANK.NS":"^NSEBANK","INFY.NS":"^CNXIT","TCS.NS":"^CNXIT",
+"WIPRO.NS":"^CNXIT","TECHM.NS":"^CNXIT","HCLTECH.NS":"^CNXIT","TATAMOTORS.NS":"^CNXAUTO",
+"M&M.NS":"^CNXAUTO","MARUTI.NS":"^CNXAUTO","BAJAJ-AUTO.NS":"^CNXAUTO","HEROMOTOCO.NS":"^CNXAUTO",
+"TATASTEEL.NS":"^CNXMETAL","JSWSTEEL.NS":"^CNXMETAL","HINDALCO.NS":"^CNXMETAL","SUNPHARMA.NS":"^CNXPHARMA",
+"DRREDDY.NS":"^CNXPHARMA","CIPLA.NS":"^CNXPHARMA","DIVISLAB.NS":"^CNXPHARMA","ITC.NS":"^CNXFMCG",
+"HINDUNILVR.NS":"^CNXFMCG","NESTLEIND.NS":"^CNXFMCG","TATAPOWER.NS":"^CNXENERGY","NTPC.NS":"^CNXENERGY",
+"ONGC.NS":"^CNXENERGY","POWERGRID.NS":"^CNXENERGY",
 }
 
-ALL_STOCKS = list(DHAN_MAP.keys())
-
-# ========== TELEGRAM ==========
 def send_tg(msg):
-    if not BOT_TOKEN or not ALL_CHAT_IDS:
-        print("TG skipped - no token/ids")
-        return
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    for chat_id in ALL_CHAT_IDS:
+    if not BOT_TOKEN: print("No BOT_TOKEN"); return
+    for cid in ALL_IDS:
         try:
-            r = requests.post(url, json={"chat_id": str(chat_id).strip(), "text": msg, "parse_mode": "Markdown"}, timeout=15)
-            print(f"Telegram to {chat_id} status {r.status_code} - {r.text[:120]}")
-            if r.status_code == 400:
-                print(f"  -> {chat_id} NEEDS /start or BLOCKED/RESTRICTED - Ask user to press START + Unblock")
-            time.sleep(0.5)
-        except Exception as e:
-            print(f"TG err for {chat_id}: {e}")
-    print(f"Sent TG to {len(ALL_CHAT_IDS)} users: {ALL_CHAT_IDS}")
+            r=requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                json={"chat_id":cid,"text":msg,"parse_mode":"HTML"}, timeout=20)
+            print(f"Telegram to {cid} {r.status_code}")
+        except Exception as e: print(f"TG fail {cid} {e}")
 
-def send_whatsapp(msg):
-    if not WHATSAPP_APIKEY: return
+def get_data(sym, period="3mo", interval="1d"):
     try:
-        import urllib.parse
-        clean = urllib.parse.quote(msg[:1500])
-        url = f"https://api.callmebot.com/whatsapp.php?phone={FRIEND_PHONE}&text={clean}&apikey={WHATSAPP_APIKEY}"
-        requests.get(url, timeout=15)
-    except: pass
-
-def send_both(msg):
-    send_tg(msg)
-    time.sleep(1)
-    send_whatsapp(msg)
-
-# ========== MARKET DIRECTION - Agent 5 ==========
-def get_market_direction():
-    try:
-        nifty = yf.download("^NSEI", period="10d", interval="15m", progress=False, auto_adjust=True)
-        if len(nifty) < 50: return "SIDEWAYS", "NIFTY data low", 0
-        if isinstance(nifty.columns, pd.MultiIndex): nifty.columns = nifty.columns.get_level_values(0)
-        nifty["EMA20"] = ta.trend.ema_indicator(nifty["Close"], 20)
-        nifty["EMA50"] = ta.trend.ema_indicator(nifty["Close"], 50)
-        nifty["RSI"] = ta.momentum.rsi(nifty["Close"], 14)
-        last = nifty.iloc[-1]
-        rsi = float(last["RSI"]); ema20 = float(last["EMA20"]); ema50 = float(last["EMA50"]); close = float(last["Close"])
-        if ema20 > ema50 and rsi > 55 and close > ema20:
-            return "BULLISH", f"NIFTY {close:.0f} | EMA20 {ema20:.0f} > EMA50 {ema50:.0f} | RSI {rsi:.0f}", rsi
-        elif ema20 < ema50 and rsi < 45 and close < ema20:
-            return "BEARISH", f"NIFTY {close:.0f} | EMA20 {ema20:.0f} < EMA50 {ema50:.0f} | RSI {rsi:.0f}", rsi
-        else:
-            return "SIDEWAYS", f"NIFTY {close:.0f} | EMA20 {ema20:.0f} ~ EMA50 {ema50:.0f} | RSI {rsi:.0f}", rsi
-    except Exception as e:
-        return "SIDEWAYS", f"Market check fail {e}", 50
-
-# ========== DATA ==========
-def get_dhan_candle(symbol):
-    if not DHAN_TOKEN or symbol not in DHAN_MAP: return None
-    try:
-        headers = {"access-token": DHAN_TOKEN, "Content-Type": "application/json"}
-        url = "https://api.dhan.co/v2/charts/intraday"
-        today = datetime.now(IST).strftime("%Y-%m-%d")
-        payload = {"securityId": str(DHAN_MAP[symbol]), "exchangeSegment": "NSE_EQ", "instrument": "EQUITY", "interval": "15", "oi": False, "fromDate": today, "toDate": today}
-        r = requests.post(url, headers=headers, json=payload, timeout=10)
-        if r.status_code != 200: return None
-        data = r.json()
-        if "open" not in data or len(data.get("open", [])) < 50: return None
-        df = pd.DataFrame({"Open": data["open"], "High": data["high"], "Low": data["low"], "Close": data["close"], "Volume": data["volume"]})
+        df=yf.download(sym, period=period, interval=interval, progress=False, auto_adjust=True)
+        if df is None or df.empty: return None
+        if isinstance(df.columns, pd.MultiIndex): df.columns=[c[0] for c in df.columns]
         return df
     except: return None
 
-def get_yf_candle(sym):
-    try:
-        import warnings
-        warnings.filterwarnings("ignore")
-        fix = {"JINDALSTAIN":"JSL","JINDALSTEEL":"JINDALSTEL","POLICYBTR":"POLICYBZR","TATAMOTORS":"TATAMOTORS","UNITECEM":"ULTRACEMCO"}
-        ticker = f"{fix.get(sym, sym)}.NS"
-        df = yf.download(ticker, period="10d", interval="15m", progress=False, auto_adjust=True, show_errors=False)
-        if df is None or len(df) < 50: return None
-        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
-        return df
-    except: return None
+def ema(s,n): return s.ewm(span=n, adjust=False).mean()
+def rsi_calc(s,n=14):
+    d=s.diff(); g=d.clip(lower=0); l=-d.clip(upper=0)
+    ag=g.ewm(alpha=1/n, adjust=False).mean(); al=l.ewm(alpha=1/n, adjust=False).mean()
+    rs=ag/(al+1e-9); return 100-(100/(1+rs))
+def atr_calc(df,n=14):
+    h=df['High']; l=df['Low']; c=df['Close']; pc=c.shift(1)
+    tr=pd.concat([h-l,(h-pc).abs(),(l-pc).abs()],axis=1).max(axis=1)
+    return tr.ewm(alpha=1/n, adjust=False).mean()
+def adx_calc(df,n=14):
+    h=df['High']; l=df['Low']; c=df['Close']
+    up=h.diff(); dn=-l.diff()
+    pm=np.where((up>dn)&(up>0),up,0); mm=np.where((dn>up)&(dn>0),dn,0)
+    tr=pd.concat([h-l,(h-c.shift(1)).abs(),(l-c.shift(1)).abs()],axis=1).max(axis=1)
+    atr=tr.ewm(alpha=1/n, adjust=False).mean()
+    pdm=pd.Series(pm,index=df.index).ewm(alpha=1/n, adjust=False).mean()
+    mdm=pd.Series(mm,index=df.index).ewm(alpha=1/n, adjust=False).mean()
+    pdi=100*pdm/(atr+1e-9); mdi=100*mdm/(atr+1e-9)
+    dx=100*(pdi-mdi).abs()/(pdi+mdi+1e-9)
+    return dx.ewm(alpha=1/n, adjust=False).mean(), pdi, mdi
 
-def get_candle(sym):
-    df = get_dhan_candle(sym)
-    if df is not None and len(df) >= 50: return df, "DHAN REAL"
-    df = get_yf_candle(sym)
-    if df is not None: return df, "YF"
-    return None, "NONE"
-
-# ========== V7 - 7 AGENT VOTING SYSTEM (Vibe-Trading Style) ==========
-def analyze_stock_v7(df, mkt_status):
-    try:
-        df = df.copy()
-        df["EMA20"] = ta.trend.ema_indicator(df["Close"], 20)
-        df["EMA50"] = ta.trend.ema_indicator(df["Close"], 50)
-        df["RSI"] = ta.momentum.rsi(df["Close"], 14)
-        df["RSI2"] = ta.momentum.rsi(df["Close"], 2)  # Vibe Alpha - RSI2 Pullback
-        df["ATR"] = ta.volatility.average_true_range(df["High"], df["Low"], df["Close"], 14)
-        df["ADX"] = ta.trend.adx(df["High"], df["Low"], df["Close"], 14)
-        macd = ta.trend.MACD(df["Close"])
-        df["MACD"] = macd.macd()
-        df["MACD_SIG"] = macd.macd_signal()
-        # VWAP - Vibe Structure Agent
-        df["VWAP"] = (df["Close"] * df["Volume"]).cumsum() / df["Volume"].cumsum()
-        df["VOL_AVG20"] = df["Volume"].rolling(20).mean()
-
-        last = df.iloc[-1]
-        prev = df.iloc[-2]
-        price = float(last["Close"]); atr = float(last["ATR"])
-        if atr == 0 or price == 0: return None, None, None, 0, "ATR Zero"
-
-        # --- AGENT 1: TREND ---
-        trend_buy = last["EMA20"] > last["EMA50"] and price > last["EMA20"] and price > last["VWAP"]
-        trend_sell = last["EMA20"] < last["EMA50"] and price < last["EMA20"] and price < last["VWAP"]
-
-        # --- AGENT 2: MOMENTUM ---
-        mom_buy = 55 < last["RSI"] < 75 and last["MACD"] > last["MACD_SIG"]
-        mom_sell = 25 < last["RSI"] < 45 and last["MACD"] < last["MACD_SIG"]
-        # RSI2 Pullback Alpha - Strong mean reversion BUY
-        rsi2_buy = last["RSI2"] < 12 and last["RSI"] < 45 and price > last["VWAP"] * 0.99
-        if rsi2_buy:
-            mom_buy = True
-
-        # --- AGENT 3: VOLUME - Fake breakout filter ---
-        vol_ok = last["Volume"] > last["VOL_AVG20"] * 1.2 if pd.notna(last["VOL_AVG20"]) else False
-
-        # --- AGENT 4: STRUCTURE / STRENGTH ---
-        adx_ok = last["ADX"] > 20
-        macd_cross_buy = last["MACD"] > last["MACD_SIG"] and prev["MACD"] <= prev["MACD_SIG"]
-        macd_cross_sell = last["MACD"] < last["MACD_SIG"] and prev["MACD"] >= prev["MACD_SIG"]
-
-        # --- AGENT 5: MARKET VETO (Master) ---
-        # If Nifty BEARISH, block BUY. If Nifty BULLISH, block SELL.
-        market_allows_buy = mkt_status in ["BULLISH", "SIDEWAYS"]
-        market_allows_sell = mkt_status in ["BEARISH", "SIDEWAYS"]
-
-        # --- AGENT 6: RISK ---
-        # ATR must be < 1.5% of price, else stock too volatile
-        risk_ok = (atr / price) < 0.015
-
-        # --- AGENT 7: NEWS / SENTIMENT - Warning only, handled in main via yfinance news check if needed ---
-        # For speed, we keep it as ADX + Volume confirmation
-
-        # VOTING - BUY
-        buy_votes = sum([trend_buy, mom_buy, vol_ok, adx_ok, macd_cross_buy, market_allows_buy, risk_ok])
-        sell_votes = sum([trend_sell, mom_sell, vol_ok, adx_ok, macd_cross_sell, market_allows_sell, risk_ok])
-
-        # Need 5/7 + Market Veto + Volume
-        if buy_votes >= 5 and market_allows_buy and vol_ok:
-            return "BUY", price, atr, buy_votes, "7-Agent BUY"
-        if sell_votes >= 5 and market_allows_sell and vol_ok:
-            return "SELL", price, atr, sell_votes, "7-Agent SELL"
-        return None, None, None, max(buy_votes, sell_votes), f"Votes {buy_votes}/7 BUY, {sell_votes}/7 SELL - SKIP"
-    except Exception as e:
-        return None, None, None, 0, f"Error {e}"
-
-def check_walkforward(symbol, history_file):
-    # Vibe Walk-Forward: If last 3 trades for this symbol were losses, skip today
-    try:
-        if not os.path.exists(history_file): return True
-        h = pd.read_csv(history_file)
-        if h.empty: return True
-        last3 = h[h["symbol"] == symbol].tail(3)
-        if len(last3) >= 3 and (last3["result"] == "LOSS").all():
-            return False
-        return True
-    except: return True
-
-# ========== MAIN ==========
-def main():
-    now = datetime.now(IST)
-    if now.weekday() > 4:
-        print("Weekend"); return
-    mkt_status, mkt_detail, mkt_rsi = get_market_direction()
-    print(f"MARKET: {mkt_status} - {mkt_detail}")
-
-    active_file = os.path.join(REPORT_DIR, "active_trades.csv")
-    history_file = os.path.join(REPORT_DIR, "trade_history.csv")
-    active_df = pd.read_csv(active_file) if os.path.exists(active_file) else pd.DataFrame(columns=["symbol","entry","sl","target","type","time"])
-    new_trades = []
-    skipped = 0
-
-    for symbol in ALL_STOCKS:
-        clean = symbol.strip()
-        if clean in active_df["symbol"].values: continue
-        # Walk-Forward filter
-        if not check_walkforward(clean, history_file):
-            skipped += 1
-            continue
-        df, src = get_candle(clean)
-        if df is None: continue
-        sig, price, atr, votes, reason = analyze_stock_v7(df, mkt_status)
-        if sig is None: continue
-        if atr is None or atr == 0: atr = price * 0.01
-        if sig == "BUY":
-            sl = price - (atr * 1.5)
-            tgt = price + (atr * 3)  # 1:2 Risk:Reward
-        else:
-            sl = price + (atr * 1.5)
-            tgt = price - (atr * 3)
-        new_trades.append({"symbol":clean,"entry":price,"sl":sl,"target":tgt,"type":sig,"time":now.strftime("%Y-%m-%d %H:%M"),"src":src,"votes":votes})
-        time.sleep(0.2)
-
-    if new_trades:
-        warning = ""
-        if mkt_status == "BEARISH" and any(t["type"]=="BUY" for t in new_trades):
-            warning = "\n⚠️ *WARNING: Market BEARISH but BUY signals! Trade with 50% size or WAIT.*\n"
-        elif mkt_status == "BULLISH" and any(t["type"]=="SELL" for t in new_trades):
-            warning = "\n⚠️ *WARNING: Market BULLISH but SELL signals! Avoid shorts.*\n"
-        elif mkt_status == "SIDEWAYS":
-            warning = "\n⚠️ *Market SIDEWAYS - Choppy! Use small qty.*\n"
-        else:
-            warning = "\n✅ *Market aligned - Good to trade.*\n"
-        header = f"📊 *FNO V7 MULTI-AGENT REPORT* 📊\nTime: {now.strftime('%d-%m %H:%M IST')}\n\n*MARKET:* {mkt_status}\nDetail: {mkt_detail}\n{warning}\n🚀 *{len(new_trades)} NEW TRADES (7-Agent Voted, DHAN REAL)* 🚀\n*Filter: 5/7 Agents YES + Volume + VWAP + Market Veto*\n\n"
-        body = ""
-        for t in new_trades:
-            body += f"*{t['symbol']}* {t['type']} @ {t['entry']:.2f} | Votes {t['votes']}/7\nSL {t['sl']:.2f} | TGT {t['target']:.2f} | RR 1:2\n\n"
-        footer = f"_Source: DHAN REAL NSE | V7 Vibe-Style 7 Agents | Sent to {len(ALL_CHAT_IDS)} users_"
-        full_msg = header + body + footer
-        send_both(full_msg)
-        save_df = pd.DataFrame(new_trades)
-        combined = pd.concat([active_df, save_df.drop(columns=["src","votes"])], ignore_index=True)
-        combined.to_csv(active_file, index=False)
-        print(f"Saved {len(new_trades)} trades, Skipped {skipped} walk-forward")
+def smart_sl(entry, support, resistance, atr, direction):
+    max_dist=entry*0.015
+    if direction=="BUY":
+        base=support-(atr*0.8)-(entry*0.003)
+        sl=base
+        if entry-base>max_dist: sl=entry-max_dist
+        if round(sl)%10==0: sl=sl-7.37
+        tgt=entry+(entry-sl)*2
     else:
-        alive_msg = f"📊 *FNO V7 DAILY CHECK* 📊\nTime: {now.strftime('%d-%m %H:%M IST')}\n\n*MARKET:* {mkt_status}\nDetail: {mkt_detail}\n\nNo new trades today - 7-Agent filter rejected weak signals (Need 5/7 votes).\nActive: {len(active_df)} trades | Walk-Forward Skipped: {skipped}\n\n✅ V7 Bot alive & scanning {len(ALL_STOCKS)} stocks - 7 Agents Active"
-        send_both(alive_msg)
-        print("No new trades - Alive msg sent")
+        base=resistance+(atr*0.8)+(entry*0.003)
+        sl=base
+        if sl-entry>max_dist: sl=entry+max_dist
+        if round(sl)%10==0: sl=sl+7.37
+        tgt=entry-(sl-entry)*2
+    sl_pct=abs(entry-sl)/entry*100
+    return round(sl,2), round(tgt,2), round(sl_pct,2)
 
-    # SL / TARGET check for active trades
-    if not active_df.empty:
-        remaining = []
-        hist_rows = []
-        for _, row in active_df.iterrows():
-            df, _ = get_candle(row["symbol"])
-            if df is None:
-                remaining.append(row); continue
-            last_price = float(df.iloc[-1]["Close"])
-            hit = False; result = ""
-            if row["type"] == "BUY":
-                if last_price <= row["sl"]:
-                    send_both(f"🔴 *SL HIT* {row['symbol']} @ {last_price:.2f} (Entry {row['entry']:.2f})")
-                    hit = True; result = "LOSS"
-                elif last_price >= row["target"]:
-                    send_both(f"✅ *TARGET HIT* {row['symbol']} @ {last_price:.2f} (Entry {row['entry']:.2f})")
-                    hit = True; result = "WIN"
-            else:
-                if last_price >= row["sl"]:
-                    send_both(f"🔴 *SL HIT* {row['symbol']} @ {last_price:.2f}")
-                    hit = True; result = "LOSS"
-                elif last_price <= row["target"]:
-                    send_both(f"✅ *TARGET HIT* {row['symbol']} @ {last_price:.2f}")
-                    hit = True; result = "WIN"
-            if hit:
-                hist_rows.append({"symbol": row["symbol"], "type": row["type"], "entry": row["entry"], "exit": last_price, "result": result, "time": now.strftime("%Y-%m-%d %H:%M")})
-            else:
-                remaining.append(row)
-        pd.DataFrame(remaining).to_csv(active_file, index=False)
-        if hist_rows:
-            hdf = pd.DataFrame(hist_rows)
-            if os.path.exists(history_file):
-                old = pd.read_csv(history_file)
-                hdf = pd.concat([old, hdf], ignore_index=True)
-            hdf.to_csv(history_file, index=False)
-    print("V7 Scan Complete")
+def detect_regime_and_choppy():
+    nifty=get_data("^NSEI", period="3mo", interval="1d")
+    bank=get_data("^NSEBANK", period="3mo", interval="1d")
+    vix=get_data("^INDIAVIX", period="1mo", interval="1d")
+    if nifty is None: return "TRANSITION",0,0,0,"Nifty data fail",False, "Yahoo"
+    close=nifty['Close']; ema20=ema(close,20); ema50=ema(close,50)
+    adx,_,_=adx_calc(nifty); atr=atr_calc(nifty)
+    last=float(close.iloc[-1]); e20=float(ema20.iloc[-1]); e50=float(ema50.iloc[-1])
+    adx_v=float(adx.iloc[-1])
+    vix_v=float(vix['Close'].iloc[-1]) if vix is not None else 14
+    vix_prev=float(vix['Close'].iloc[-2]) if vix is not None and len(vix)>1 else vix_v
+    vix_jump=(vix_v-vix_prev)/vix_prev*100 if vix_prev else 0
+    # V8.1 - Override with Upstox Live Nifty + VIX
+    data_source="Yahoo (Delayed)"
+    if UPSTOX_ENABLED:
+        live_nifty=upstox_live_price("NSE_INDEX|Nifty 50")
+        live_vix=upstox_live_price("NSE_INDEX|India VIX")
+        if live_nifty:
+            print(f"Upstox Nifty Live: {live_nifty} vs Yahoo {last}")
+            last=live_nifty; data_source="Upstox Live"
+        if live_vix:
+            print(f"Upstox VIX Live: {live_vix} vs Yahoo {vix_v}")
+            vix_v=live_vix; data_source="Upstox Live"
+    rng=(float(nifty['High'].iloc[-5:].max())-float(nifty['Low'].iloc[-5:].min()))/last*100
+    choppy_score=0; reasons=[]
+    if adx_v<18: choppy_score+=1; reasons.append(f"ADX {adx_v:.1f} Weak")
+    if vix_v>17 or vix_jump>10: choppy_score+=1; reasons.append(f"VIX {vix_v:.1f} High")
+    if rng<1.2: choppy_score+=1; reasons.append(f"Range5D {rng:.2f}% Small")
+    if bank is not None:
+        bclose=bank['Close']; bema20=ema(bclose,20)
+        nifty_up=last>e20; bank_up=float(bclose.iloc[-1])>float(bema20.iloc[-1])
+        if nifty_up!=bank_up: choppy_score+=1; reasons.append("Nifty vs Bank Disagree")
+    if abs(last-e20)/last*100<0.3 and adx_v<20: choppy_score+=1; reasons.append("Near EMA20 + Weak ADX")
+    is_choppy=choppy_score>=3
+    if is_choppy: regime="CHOPPY - NO TRADE"
+    elif last>e20 and last>e50 and adx_v>25: regime="STRONG BULL"
+    elif last<e20 and last<e50 and adx_v>25: regime="STRONG BEAR"
+    elif adx_v<22: regime="SIDEWAYS"
+    elif vix_v>17: regime="VOLATILE"
+    else: regime="TRANSITION"
+    info=f"Nifty {last:.1f} | EMA20 {e20:.1f} EMA50 {e50:.1f} | ADX {adx_v:.1f} | VIX {vix_v:.1f} | Range5D {rng:.2f}% | Choppy {choppy_score}/5 | Data: {data_source}"
+    return regime, adx_v, vix_v, last, info, is_choppy, data_source
 
-if __name__ == "__main__":
-    main()
+def scan_stocks(regime, run_type):
+    results=[]
+    for sym in FNO_STOCKS:
+        try:
+            df=get_data(sym, period="3mo", interval="1d")
+            if df is None or len(df)<60: continue
+            close=df['Close']; high=df['High']; low=df['Low']
+            last=float(close.iloc[-1]); prev=float(close.iloc[-2])
+            e20=float(ema(close,20).iloc[-1]); e50=float(ema(close,50).iloc[-1])
+            rsi=float(rsi_calc(close).iloc[-1])
+            atr=float(atr_calc(df).iloc[-1])
+            adx,_,_=adx_calc(df); adx_v=float(adx.iloc[-1])
+            prev_high=float(high.iloc[-2]); prev_low=float(low.iloc[-2])
+            sup=prev_low; res=prev_high
+            # V8.1 - Override Yahoo price with Upstox Live price
+            live_price=None
+            if UPSTOX_ENABLED:
+                live_price=upstox_live_price(to_upstox_key(sym))
+                if live_price:
+                    print(f"Upstox {sym}: Live {live_price} vs Yahoo {last}")
+                    last=live_price
+            rng_pct=(res-sup)/last*100 if last else 0
+            day_move=abs(last-prev)/prev*100
+            if run_type=="MORNING" and day_move>2.5: continue  # Gap Filter - Don't chase
+            sector_ok=True
+            sec_sym=SECTOR_MAP.get(sym)
+            if sec_sym:
+                sec=get_data(sec_sym, period="1mo", interval="1d")
+                if sec is not None:
+                    sc=sec['Close']; se20=float(ema(sc,20).iloc[-1]); slast=float(sc.iloc[-1])
+                    if (slast>se20)!=(last>e20): sector_ok=False
+            score=0; direction=None; strategy=""; entry=last
+            if regime in ["SIDEWAYS","VOLATILE"]:
+                if rng_pct<1.2: continue
+                if abs(last-sup)/last*100<0.8 and rsi<40:
+                    direction="BUY"; strategy="Sideways Support Buy"; score=75
+                    if sector_ok: score+=10
+                    if rsi<35: score+=5
+                elif abs(last-res)/last*100<0.8 and rsi>60:
+                    direction="SELL"; strategy="Sideways Resistance Sell"; score=75
+                    if sector_ok: score+=10
+                    if rsi>65: score+=5
+            elif regime=="STRONG BULL":
+                if last>e20 and last>e50 and 50<rsi<70:
+                    if last>=res*0.995: direction="BUY"; strategy="Bull Breakout"; score=85
+                    elif abs(last-e20)/last*100<1.0: direction="BUY"; strategy="Bull Pullback"; score=80
+            elif regime=="STRONG BEAR":
+                if last<e20 and last<e50 and 30<rsi<50:
+                    if last<=sup*1.005: direction="SELL"; strategy="Bear Breakdown"; score=85
+                    elif abs(last-e20)/last*100<1.0: direction="SELL"; strategy="Bear Pullback"; score=80
+            if direction:
+                sl,tgt,sl_pct=smart_sl(entry, sup, res, atr, direction)
+                if sl_pct>1.8 or sl_pct<0.4: continue
+                qty=int(RISK_PER_TRADE//abs(entry-sl)) if abs(entry-sl)>0 else 0
+                if qty<=0: continue
+                if "Sideways" in strategy: qty=qty//2
+                results.append({"sym":sym.replace(".NS",""),"entry":round(entry,2),"sl":sl,"tgt":tgt,
+                    "sl_pct":sl_pct,"dir":direction,"strat":strategy,"score":score,
+                    "rsi":round(rsi,1),"sup":round(sup,2),"res":round(res,2),
+                    "rng":round(rng_pct,2),"qty":qty,
+                    "src":"Upstox Live" if live_price else "Yahoo"})
+        except Exception as e:
+            print(f"Scan fail {sym} {e}"); continue
+    results=sorted(results, key=lambda x: x['score'], reverse=True)
+    return results[:MAX_TRADES]
+
+def main():
+    now=datetime.now(IST)
+    if now.weekday()>4:
+        print("Weekend - No Trade"); return
+    # V8.1 - Upstox Token Health Check
+    token_msg="Upstox: OFF - Yahoo Only"
+    if UPSTOX_ENABLED:
+        health, days = upstox_token_health()
+        token_msg=f"Upstox: {health} | Exp {UPSTOX_EXPIRY}"
+        print(token_msg)
+        if health=="EXPIRED":
+            print("Token expired - Fallback to Yahoo")
+            token_msg="Upstox: EXPIRED - Using Yahoo Fallback - Renew Token!"
+    else:
+        print("No UPSTOX_ACCESS_TOKEN - Using Yahoo only")
+    is_thursday=now.weekday()==3
+    h=now.hour; m=now.minute; total_min=h*60+m
+    if 555 <= total_min <= 620: run_type="MORNING"; run_label="MORNING ENTRY - 09:45 IST"
+    elif 915 <= total_min <= 980: run_type="BTST"; run_label="BTST - 15:15 IST - Buy Today Sell Tomorrow"
+    elif 990 <= total_min <= 1080: run_type="EOD"; run_label="EOD REPORT - 16:30 IST"
+    else: run_type="MORNING"; run_label=f"MANUAL RUN - {now.strftime('%H:%M IST')}"
+    print(f"V8.1 Run {run_type} {now} IST")
+    regime, adx_v, vix_v, nifty_last, regime_info, is_choppy, data_src = detect_regime_and_choppy()
+    print(regime_info)
+    if is_choppy and run_type in ["MORNING","BTST"]:
+        msg=(f"🚫 <b>FNO V8.1 - NO TRADE - {run_label}</b>\n"
+             f"📅 {now.strftime('%d-%m-%Y %H:%M IST')}\n"
+             f"Regime: <b>CHOPPY - NO TRADE</b>\n{regime_info}\n"
+             f"Reason: 3+/5 Choppy Tests True\n"
+             f"Action: <b>PROTECT CAPITAL - No Trade</b>\n"
+             f"Next Check: {'3:15 PM IST BTST' if run_type=='MORNING' else 'Tomorrow 9:45 AM IST'}\n"
+             f"{token_msg}")
+        send_tg(msg); print("Choppy - No Trade"); return
+    if run_type=="EOD":
+        msg=(f"📊 <b>FNO V8.1 - EOD REPORT - 16:30 IST</b>\n"
+             f"📅 {now.strftime('%d-%m-%Y')}\n"
+             f"Regime Today: <b>{regime}</b>\n{regime_info}\n"
+             f"Tomorrow Plan: {'Sideways - Buy at Support / Sell at Resistance, 50% size' if regime=='SIDEWAYS' else regime}\n"
+             f"Thursday Note: {'Tomorrow is Friday - No BTST Today' if is_thursday else 'BTST allowed tomorrow if not Choppy'}\n"
+             f"Smart SL: Max 1.0% Intraday, 1.5% BTST, 1.8% Swing - Buffered, Non-Round, Close-Based\n"
+             f"{token_msg}\nCapital: Rs 5L Paper")
+        send_tg(msg); print("EOD Sent"); return
+    if run_type=="BTST" and is_thursday:
+        msg=(f"🚫 <b>FNO V8.1 - NO BTST - Thursday - 15:15 IST</b>\nRegime: {regime}\n{regime_info}\n"
+             f"Reason: Thursday BTST = Friday Gap Risk High\nAction: Book all BTST, No new BTST\nNext: Tomorrow 9:45 AM IST")
+        send_tg(msg); print("Thursday No BTST"); return
+    picks=scan_stocks(regime, run_type)
+    if not picks:
+        msg=(f"📊 <b>FNO V8.1 - NO TRADE - {run_label}</b>\n📅 {now.strftime('%d-%m-%Y %H:%M IST')}\n"
+             f"Regime: <b>{regime}</b>\n{regime_info}\n"
+             f"Reason: No stock passed - SL too high / Gap >1.5% / Sector Disagree / Range too small\n{token_msg}\nCapital: Rs 5L Paper")
+        send_tg(msg); print("No picks"); return
+    lines=[]
+    for i,p in enumerate(picks,1):
+        emoji="🟢" if p['dir']=="BUY" else "🔴"
+        extra=""
+        if run_type=="BTST": extra="\n⏰ Sell: Tomorrow 9:45 AM IST | SL: Close-Based - Exit only if 2x 15-min closes below SL"
+        if "Sideways" in p['strat']: extra+="\n⚠️ Sideways - 50% Size - Book at VWAP / Mid"
+        lines.append(f"\n{i}. {emoji} <b>{p['dir']} {p['sym']}</b> @ Rs {p['entry']} [{p['src']}]\n"
+            f"Strategy: {p['strat']} | Score: {p['score']}/100 | RSI {p['rsi']}\n"
+            f"Support Rs {p['sup']} | Resistance Rs {p['res']} | Range {p['rng']}%\n"
+            f"Smart SL Rs {p['sl']} ({p['sl_pct']}% - Buffered, Anti-Hunt, Non-Round)\n"
+            f"Target Rs {p['tgt']} (RR 1:2)\nQty: {p['qty']} (Risk Rs {abs(p['entry']-p['sl'])*p['qty']:.0f})\n"
+            f"Trailing: Book 50% at 50% Target, Move SL to Breakeven{extra}")
+    action_note="BUY TODAY - Sell Tomorrow 9:45 AM IST" if run_type=="BTST" else "Entry Now - 9:45 AM IST - Do NOT Chase if Gap >1.5%"
+    msg=(f"📊 <b>FNO V8.1 - {run_label}</b>\n📅 {now.strftime('%d-%m-%Y %H:%M IST')}\n"
+         f"Regime: <b>{regime}</b>\n{regime_info}\nAction: {action_note}\n"
+         f"Max Trades: 2 | Capital: Rs 5L Paper | Risk 1% per trade\n{''.join(lines)}\n\n"
+         f"⚠️ Smart SL: Do NOT move SL to Support / Round Number. SL is hidden below Support + Buffer. Exit only on 2x 15-min closes below SL (ignore wick).\n{token_msg}")
+    send_tg(msg)
+    print(f"V8.1 Complete - {len(picks)} picks sent")
+
+if __name__=="__main__":
+    try: main()
+    except Exception as e:
+        print(traceback.format_exc())
+        try: send_tg(f"⚠️ V8.1 Error: {e}")
+        except: pass
