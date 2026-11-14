@@ -1,15 +1,12 @@
-name: FNO V7 DHAN REAL + WA
-
+name: FNO V8.1 AMRTS - IST + Upstox Live
 on:
   schedule:
-    - cron: '30 3 * * 1-5'      # 9:00 AM IST - Pre-Open / First Scan
-    - cron: '0,15,30,45 4-9 * * 1-5'  # 9:30 AM - 3:00 PM IST - Every 15 min
-    - cron: '0,15 10 * * 1-5'   # 3:30 PM - 3:45 PM IST - Closing
+    - cron: '15 4 * * 1-5'   # 9:45 AM IST = 4:15 AM UTC - Morning Entry
+    - cron: '45 9 * * 1-5'   # 3:15 PM IST = 9:45 AM UTC - BTST
+    - cron: '00 11 * * 1-5'  # 4:30 PM IST = 11:00 AM UTC - EOD Report
   workflow_dispatch:
-
 permissions:
   contents: write
-
 jobs:
   trade:
     runs-on: ubuntu-latest
@@ -20,20 +17,21 @@ jobs:
         with:
           python-version: '3.10'
       - name: Install deps
-        run: pip install --quiet yfinance pandas ta requests pytz
-      - name: Run V7 Screener
+        run: pip install --quiet yfinance pandas numpy requests pytz
+      - name: Run V8.1 - IST + Upstox Live
         env:
           TELEGRAM_FNO_BOT_TOKEN: ${{ secrets.TELEGRAM_FNO_BOT_TOKEN }}
           TELEGRAM_FNO_CHAT_ID: ${{ secrets.TELEGRAM_FNO_CHAT_ID }}
+          UPSTOX_ACCESS_TOKEN: ${{ secrets.UPSTOX_ACCESS_TOKEN }}
+          UPSTOX_TOKEN_EXPIRY: ${{ secrets.UPSTOX_TOKEN_EXPIRY }}
           DHAN_ACCESS_TOKEN: ${{ secrets.DHAN_ACCESS_TOKEN }}
           WHATSAPP_APIKEY: ${{ secrets.WHATSAPP_APIKEY }}
         run: python main.py
       - name: Save Reports
         if: always()
         run: |
-          git config --global user.name "FNO V7 DHAN"
-          git config --global user.email "fno-dhan@github.com"
-          mkdir -p reports
-          git add reports/ || true
-          git commit -m "V7 DHAN REAL $(date -u)" || echo "No changes"
-          git push || echo "Push failed - Telegram already sent, ignore"
+          git config --global user.name "FNO V8.1"
+          git config --global user.email "fno-v8@github.com"
+          git add -A || true
+          git commit -m "V8.1 IST $(date -u)" || echo "No changes"
+          git push || echo "Push failed - Telegram already sent"
