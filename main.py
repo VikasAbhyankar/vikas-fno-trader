@@ -8,26 +8,26 @@ REPORT_DIR = "reports"
 os.makedirs(REPORT_DIR, exist_ok=True)
 
 BOT_TOKEN = os.getenv("TELEGRAM_FNO_BOT_TOKEN")
-CHAT_ID_ENV = os.getenv("TELEGRAM_FNO_CHAT_ID") # Your main ID from GitHub Secrets
+CHAT_ID_ENV = os.getenv("TELEGRAM_FNO_CHAT_ID")
 DHAN_TOKEN = os.getenv("DHAN_ACCESS_TOKEN")
 WHATSAPP_APIKEY = os.getenv("WHATSAPP_APIKEY")
 FRIEND_PHONE = "919425074989"
 
-# ========== MULTI-USER LIST - Bala = Prashant = Same ==========
-# Your 2 friends + your own ID from env
+# ========== V7 MULTI-USER LIST - FIXED ==========
+# 5239892901 = Bala / Prashant
+# 9000971028 = New Person (REPLACED 7507879668 Nishant)
 FRIEND_TELEGRAM_IDS = [
-    "5239892901",  # Bala / Prashant
-    "7507879668",  # Nishant
+    "5239892901",
+    "9000971028",
 ]
 
 def get_all_chat_ids():
     ids = []
     if CHAT_ID_ENV:
-        # Support comma separated IDs in env also
         for x in str(CHAT_ID_ENV).split(","):
             x = x.strip()
-            if x: ids.append(x)
-    # Add friends
+            if x and x not in ids:
+                ids.append(x)
     for fid in FRIEND_TELEGRAM_IDS:
         if fid not in ids:
             ids.append(fid)
@@ -70,20 +70,24 @@ DHAN_MAP = {
     "JINDALSTAIN": 11236, "JINDALSTEEL": 6733, "POLICYBTR": 6656, "TATAMOTORS": 759782, "UNITECEM": 11532
 }
 
-ALL_STOCKS = ["360ONE","ABB","ABCAPITAL","ABFRL","ADANIENT","ADANIPORTS","ALKEM","AMBER","AMBUJACEM","APLLTD","APOLLOHOSP","ASIANPAINT","ASTRAL","ATGL","AUROPHARMA","AXISBANK","BAJAJ-AUTO","BAJAJFINSV","BAJAJHFL","BAJFINANCE","BANDHANBNK","BANKBARODA","BDL","BEL","BHARATFORG","BHARTIARTL","BHEL","BIKAJI","BIOCON","BLUESTARCO","BOSCHLTD","BPCL","BRITANNIA","BSE","BSOFT","CAMS","CANBK","CANFINHOME","CDSL","CGPOWER","CHAMBLFERT","CHOLAFIN","CIPLA","COALINDIA","COFORGE","COLPAL","CONCOR","CROMPTON","CUMMINSIND","CYIENT","DABUR","DALBHARAT","DEEPAKNTR","DELHIVERY","DIVISLAB","DIXON","DLF","DMART","DRREDDY","EICHERMOT","ETERNAL","EXIDEIND","FEDERALBNK","FORTIS","GAIL","GLENMARK","GMRAIRPORT","GODREJCP","GODREJPROP","GRANULES","GRASIM","HAL","HAVELLS","HCLTECH","HDFCAMC","HDFCBANK","HDFCLIFE","HEROMOTOCO","HINDALCO","HINDCOPPER","HINDPETRO","HINDUNILVR","HINDZINC","HUDCO","ICICIBANK","ICICIGI","IDFCFIRSTB","IEX","IGL","INDHOTEL","INDIANB","INDIGO","INDUSINDBK","INDUSTOWER","INFY","IOC","IRB","IRCTC","IREDA","IRFC","ITC","JINDALSTAIN","JINDALSTEEL","JIOFIN","JSWENERGY","JSWSTEEL","KAYNES","KEI","KFINTECH","KOTAKBANK","KPITTECH","LALPATHLAB","LAURUSLABS","LICHSGFIN","LICI","LODHA","LT","LTF","LUPIN","M&M","MANKIND","MANYAVAR","MARICO","MARUTI","MAXHEALTH","MCX","MFSL","MOTHERSON","MPHASIS","MUTHOOTFIN","NATIONALUM","NAUKRI","NBCC","NCC","NESTLEIND","NHPC","NMDC","NTPC","NYKAA","OBEROIRLTY","OFSS","OIL","ONGC","PAGEIND","PATANJALI","PAYTM","PERSISTENT","PETRONET","PFC","PHOENIXLTD","PIDILITIND","POLYCAB","POWERGRID","PRESTIGE","PTCIL","RECLTD","RELIANCE","SAIL","SBICARD","SBILIFE","SBIN","SHREECEM","SHRIRAMFIN","SIEMENS","SOLARINDS","SONACOMS","SRF","SUNPHARMA","SUPREMEIND","SYNGENE","TATACOMM","TATACONSUM","TATAELXSI","TATAPOWER","TATASTEEL","TATATECH","TCS","TECHM","TITAN","TORNTPHARM","TORNTPOWER","TRENT","TVSMOTOR","UNIONBANK","UNOMINDA","UPL","VEDL","VOLTAS","WIPRO","YESBANK","ZYDUSLIFE"]
+ALL_STOCKS = list(DHAN_MAP.keys())
 
+# ========== TELEGRAM ==========
 def send_tg(msg):
-    if not BOT_TOKEN or not ALL_CHAT_IDS: return
-    try:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        for chat_id in ALL_CHAT_IDS:
-            try:
-                requests.post(url, json={"chat_id": str(chat_id).strip(), "text": msg, "parse_mode": "Markdown"}, timeout=15)
-                time.sleep(0.5)
-            except Exception as e: 
-                print(f"TG err for {chat_id}: {e}")
-        print(f"Sent TG to {len(ALL_CHAT_IDS)} users: {ALL_CHAT_IDS}")
-    except Exception as e: print(f"TG err {e}")
+    if not BOT_TOKEN or not ALL_CHAT_IDS:
+        print("TG skipped - no token/ids")
+        return
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    for chat_id in ALL_CHAT_IDS:
+        try:
+            r = requests.post(url, json={"chat_id": str(chat_id).strip(), "text": msg, "parse_mode": "Markdown"}, timeout=15)
+            print(f"Telegram to {chat_id} status {r.status_code} - {r.text[:120]}")
+            if r.status_code == 400:
+                print(f"  -> {chat_id} NEEDS /start or BLOCKED/RESTRICTED - Ask user to press START + Unblock")
+            time.sleep(0.5)
+        except Exception as e:
+            print(f"TG err for {chat_id}: {e}")
+    print(f"Sent TG to {len(ALL_CHAT_IDS)} users: {ALL_CHAT_IDS}")
 
 def send_whatsapp(msg):
     if not WHATSAPP_APIKEY: return
@@ -99,6 +103,7 @@ def send_both(msg):
     time.sleep(1)
     send_whatsapp(msg)
 
+# ========== MARKET DIRECTION - Agent 5 ==========
 def get_market_direction():
     try:
         nifty = yf.download("^NSEI", period="10d", interval="15m", progress=False, auto_adjust=True)
@@ -108,10 +113,7 @@ def get_market_direction():
         nifty["EMA50"] = ta.trend.ema_indicator(nifty["Close"], 50)
         nifty["RSI"] = ta.momentum.rsi(nifty["Close"], 14)
         last = nifty.iloc[-1]
-        rsi = float(last["RSI"])
-        ema20 = float(last["EMA20"])
-        ema50 = float(last["EMA50"])
-        close = float(last["Close"])
+        rsi = float(last["RSI"]); ema20 = float(last["EMA20"]); ema50 = float(last["EMA50"]); close = float(last["Close"])
         if ema20 > ema50 and rsi > 55 and close > ema20:
             return "BULLISH", f"NIFTY {close:.0f} | EMA20 {ema20:.0f} > EMA50 {ema50:.0f} | RSI {rsi:.0f}", rsi
         elif ema20 < ema50 and rsi < 45 and close < ema20:
@@ -121,6 +123,7 @@ def get_market_direction():
     except Exception as e:
         return "SIDEWAYS", f"Market check fail {e}", 50
 
+# ========== DATA ==========
 def get_dhan_candle(symbol):
     if not DHAN_TOKEN or symbol not in DHAN_MAP: return None
     try:
@@ -155,49 +158,118 @@ def get_candle(sym):
     if df is not None: return df, "YF"
     return None, "NONE"
 
-def analyze_stock(df):
+# ========== V7 - 7 AGENT VOTING SYSTEM (Vibe-Trading Style) ==========
+def analyze_stock_v7(df, mkt_status):
     try:
+        df = df.copy()
         df["EMA20"] = ta.trend.ema_indicator(df["Close"], 20)
         df["EMA50"] = ta.trend.ema_indicator(df["Close"], 50)
         df["RSI"] = ta.momentum.rsi(df["Close"], 14)
+        df["RSI2"] = ta.momentum.rsi(df["Close"], 2)  # Vibe Alpha - RSI2 Pullback
         df["ATR"] = ta.volatility.average_true_range(df["High"], df["Low"], df["Close"], 14)
         df["ADX"] = ta.trend.adx(df["High"], df["Low"], df["Close"], 14)
         macd = ta.trend.MACD(df["Close"])
         df["MACD"] = macd.macd()
         df["MACD_SIG"] = macd.macd_signal()
+        # VWAP - Vibe Structure Agent
+        df["VWAP"] = (df["Close"] * df["Volume"]).cumsum() / df["Volume"].cumsum()
+        df["VOL_AVG20"] = df["Volume"].rolling(20).mean()
+
         last = df.iloc[-1]
         prev = df.iloc[-2]
-        buy = last["EMA20"] > last["EMA50"] and 55 < last["RSI"] < 75 and last["MACD"] > last["MACD_SIG"] and last["ADX"] > 20 and last["Close"] > last["EMA20"] and prev["MACD"] <= prev["MACD_SIG"]
-        sell = last["EMA20"] < last["EMA50"] and 25 < last["RSI"] < 45 and last["MACD"] < last["MACD_SIG"] and last["ADX"] > 20 and last["Close"] < last["EMA20"] and prev["MACD"] >= prev["MACD_SIG"]
-        if buy: return "BUY", float(last["Close"]), float(last["ATR"])
-        if sell: return "SELL", float(last["Close"]), float(last["ATR"])
-        return None, None, None
-    except: return None, None, None
+        price = float(last["Close"]); atr = float(last["ATR"])
+        if atr == 0 or price == 0: return None, None, None, 0, "ATR Zero"
 
+        # --- AGENT 1: TREND ---
+        trend_buy = last["EMA20"] > last["EMA50"] and price > last["EMA20"] and price > last["VWAP"]
+        trend_sell = last["EMA20"] < last["EMA50"] and price < last["EMA20"] and price < last["VWAP"]
+
+        # --- AGENT 2: MOMENTUM ---
+        mom_buy = 55 < last["RSI"] < 75 and last["MACD"] > last["MACD_SIG"]
+        mom_sell = 25 < last["RSI"] < 45 and last["MACD"] < last["MACD_SIG"]
+        # RSI2 Pullback Alpha - Strong mean reversion BUY
+        rsi2_buy = last["RSI2"] < 12 and last["RSI"] < 45 and price > last["VWAP"] * 0.99
+        if rsi2_buy:
+            mom_buy = True
+
+        # --- AGENT 3: VOLUME - Fake breakout filter ---
+        vol_ok = last["Volume"] > last["VOL_AVG20"] * 1.2 if pd.notna(last["VOL_AVG20"]) else False
+
+        # --- AGENT 4: STRUCTURE / STRENGTH ---
+        adx_ok = last["ADX"] > 20
+        macd_cross_buy = last["MACD"] > last["MACD_SIG"] and prev["MACD"] <= prev["MACD_SIG"]
+        macd_cross_sell = last["MACD"] < last["MACD_SIG"] and prev["MACD"] >= prev["MACD_SIG"]
+
+        # --- AGENT 5: MARKET VETO (Master) ---
+        # If Nifty BEARISH, block BUY. If Nifty BULLISH, block SELL.
+        market_allows_buy = mkt_status in ["BULLISH", "SIDEWAYS"]
+        market_allows_sell = mkt_status in ["BEARISH", "SIDEWAYS"]
+
+        # --- AGENT 6: RISK ---
+        # ATR must be < 1.5% of price, else stock too volatile
+        risk_ok = (atr / price) < 0.015
+
+        # --- AGENT 7: NEWS / SENTIMENT - Warning only, handled in main via yfinance news check if needed ---
+        # For speed, we keep it as ADX + Volume confirmation
+
+        # VOTING - BUY
+        buy_votes = sum([trend_buy, mom_buy, vol_ok, adx_ok, macd_cross_buy, market_allows_buy, risk_ok])
+        sell_votes = sum([trend_sell, mom_sell, vol_ok, adx_ok, macd_cross_sell, market_allows_sell, risk_ok])
+
+        # Need 5/7 + Market Veto + Volume
+        if buy_votes >= 5 and market_allows_buy and vol_ok:
+            return "BUY", price, atr, buy_votes, "7-Agent BUY"
+        if sell_votes >= 5 and market_allows_sell and vol_ok:
+            return "SELL", price, atr, sell_votes, "7-Agent SELL"
+        return None, None, None, max(buy_votes, sell_votes), f"Votes {buy_votes}/7 BUY, {sell_votes}/7 SELL - SKIP"
+    except Exception as e:
+        return None, None, None, 0, f"Error {e}"
+
+def check_walkforward(symbol, history_file):
+    # Vibe Walk-Forward: If last 3 trades for this symbol were losses, skip today
+    try:
+        if not os.path.exists(history_file): return True
+        h = pd.read_csv(history_file)
+        if h.empty: return True
+        last3 = h[h["symbol"] == symbol].tail(3)
+        if len(last3) >= 3 and (last3["result"] == "LOSS").all():
+            return False
+        return True
+    except: return True
+
+# ========== MAIN ==========
 def main():
     now = datetime.now(IST)
     if now.weekday() > 4:
         print("Weekend"); return
     mkt_status, mkt_detail, mkt_rsi = get_market_direction()
     print(f"MARKET: {mkt_status} - {mkt_detail}")
+
     active_file = os.path.join(REPORT_DIR, "active_trades.csv")
+    history_file = os.path.join(REPORT_DIR, "trade_history.csv")
     active_df = pd.read_csv(active_file) if os.path.exists(active_file) else pd.DataFrame(columns=["symbol","entry","sl","target","type","time"])
     new_trades = []
+    skipped = 0
+
     for symbol in ALL_STOCKS:
         clean = symbol.strip()
         if clean in active_df["symbol"].values: continue
+        # Walk-Forward filter
+        if not check_walkforward(clean, history_file):
+            skipped += 1
+            continue
         df, src = get_candle(clean)
         if df is None: continue
-        sig, price, atr = analyze_stock(df)
+        sig, price, atr, votes, reason = analyze_stock_v7(df, mkt_status)
         if sig is None: continue
         if atr is None or atr == 0: atr = price * 0.01
         if sig == "BUY":
             sl = price - (atr * 1.5)
-            tgt = price + (atr * 3)
+            tgt = price + (atr * 3)  # 1:2 Risk:Reward
         else:
             sl = price + (atr * 1.5)
             tgt = price - (atr * 3)
-        new_trades.append({"symbol":clean,"entry":price,"sl":sl,"target":tgt,"type":sig,"time":now.strftime("%Y-%m-%d %H:%M"),"src":src})
+        new_trades.append({"symbol":clean,"entry":price,"sl":sl,"target":tgt,"type":sig,"time":now.strftime("%Y-%m-%d %H:%M"),"src":src,"votes":votes})
         time.sleep(0.2)
 
     if new_trades:
@@ -210,47 +282,58 @@ def main():
             warning = "\n⚠️ *Market SIDEWAYS - Choppy! Use small qty.*\n"
         else:
             warning = "\n✅ *Market aligned - Good to trade.*\n"
-        header = f"📊 *FNO V6 MULTI-USER REPORT* 📊\nTime: {now.strftime('%d-%m %H:%M IST')}\n\n*MARKET:* {mkt_status}\nDetail: {mkt_detail}\n{warning}\n🚀 *{len(new_trades)} NEW TRADES (DHAN REAL)* 🚀\n\n"
+        header = f"📊 *FNO V7 MULTI-AGENT REPORT* 📊\nTime: {now.strftime('%d-%m %H:%M IST')}\n\n*MARKET:* {mkt_status}\nDetail: {mkt_detail}\n{warning}\n🚀 *{len(new_trades)} NEW TRADES (7-Agent Voted, DHAN REAL)* 🚀\n*Filter: 5/7 Agents YES + Volume + VWAP + Market Veto*\n\n"
         body = ""
         for t in new_trades:
-            body += f"*{t['symbol']}* {t['type']} @ {t['entry']:.2f}\nSL {t['sl']:.2f} | TGT {t['target']:.2f}\n\n"
-        footer = f"_Source: DHAN REAL NSE | Sent to {len(ALL_CHAT_IDS)} users_"
+            body += f"*{t['symbol']}* {t['type']} @ {t['entry']:.2f} | Votes {t['votes']}/7\nSL {t['sl']:.2f} | TGT {t['target']:.2f} | RR 1:2\n\n"
+        footer = f"_Source: DHAN REAL NSE | V7 Vibe-Style 7 Agents | Sent to {len(ALL_CHAT_IDS)} users_"
         full_msg = header + body + footer
         send_both(full_msg)
         save_df = pd.DataFrame(new_trades)
-        combined = pd.concat([active_df, save_df.drop(columns=["src"])], ignore_index=True)
+        combined = pd.concat([active_df, save_df.drop(columns=["src","votes"])], ignore_index=True)
         combined.to_csv(active_file, index=False)
-        print(f"Saved {len(new_trades)} trades")
+        print(f"Saved {len(new_trades)} trades, Skipped {skipped} walk-forward")
     else:
-        alive_msg = f"📊 *FNO V6 DAILY CHECK* 📊\nTime: {now.strftime('%d-%m %H:%M IST')}\n\n*MARKET:* {mkt_status}\nDetail: {mkt_detail}\n\nNo new trades today - Market consolidating or signals already active.\nActive: {len(active_df)} trades\n\n✅ Bot alive & scanning 176 stocks - Sent to Bala, Nishant + You"
+        alive_msg = f"📊 *FNO V7 DAILY CHECK* 📊\nTime: {now.strftime('%d-%m %H:%M IST')}\n\n*MARKET:* {mkt_status}\nDetail: {mkt_detail}\n\nNo new trades today - 7-Agent filter rejected weak signals (Need 5/7 votes).\nActive: {len(active_df)} trades | Walk-Forward Skipped: {skipped}\n\n✅ V7 Bot alive & scanning {len(ALL_STOCKS)} stocks - 7 Agents Active"
         send_both(alive_msg)
         print("No new trades - Alive msg sent")
 
+    # SL / TARGET check for active trades
     if not active_df.empty:
         remaining = []
+        hist_rows = []
         for _, row in active_df.iterrows():
             df, _ = get_candle(row["symbol"])
             if df is None:
                 remaining.append(row); continue
             last_price = float(df.iloc[-1]["Close"])
-            hit = False
+            hit = False; result = ""
             if row["type"] == "BUY":
                 if last_price <= row["sl"]:
                     send_both(f"🔴 *SL HIT* {row['symbol']} @ {last_price:.2f} (Entry {row['entry']:.2f})")
-                    hit = True
+                    hit = True; result = "LOSS"
                 elif last_price >= row["target"]:
                     send_both(f"✅ *TARGET HIT* {row['symbol']} @ {last_price:.2f} (Entry {row['entry']:.2f})")
-                    hit = True
+                    hit = True; result = "WIN"
             else:
                 if last_price >= row["sl"]:
                     send_both(f"🔴 *SL HIT* {row['symbol']} @ {last_price:.2f}")
-                    hit = True
+                    hit = True; result = "LOSS"
                 elif last_price <= row["target"]:
                     send_both(f"✅ *TARGET HIT* {row['symbol']} @ {last_price:.2f}")
-                    hit = True
-            if not hit: remaining.append(row)
+                    hit = True; result = "WIN"
+            if hit:
+                hist_rows.append({"symbol": row["symbol"], "type": row["type"], "entry": row["entry"], "exit": last_price, "result": result, "time": now.strftime("%Y-%m-%d %H:%M")})
+            else:
+                remaining.append(row)
         pd.DataFrame(remaining).to_csv(active_file, index=False)
-    print("Scan Complete")
+        if hist_rows:
+            hdf = pd.DataFrame(hist_rows)
+            if os.path.exists(history_file):
+                old = pd.read_csv(history_file)
+                hdf = pd.concat([old, hdf], ignore_index=True)
+            hdf.to_csv(history_file, index=False)
+    print("V7 Scan Complete")
 
 if __name__ == "__main__":
     main()
