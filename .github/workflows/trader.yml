@@ -24,8 +24,7 @@ jobs:
           TELEGRAM_FNO_CHAT_ID: ${{ secrets.TELEGRAM_FNO_CHAT_ID }}
           UPSTOX_ACCESS_TOKEN: ${{ secrets.UPSTOX_ACCESS_TOKEN }}
           UPSTOX_TOKEN_EXPIRY: ${{ secrets.UPSTOX_TOKEN_EXPIRY }}
-          DHAN_ACCESS_TOKEN: ${{ secrets.DHAN_ACCESS_TOKEN }}
-          WHATSAPP_APIKEY: ${{ secrets.WHATSAPP_APIKEY }}
+          
         run: python main.py
       - name: Save Reports
         if: always()
