@@ -1,36 +1,29 @@
-name: FNO V8.1 AMRTS - IST + Upstox Live
+name: FNO V8.1 - Trader - IST
 on:
   schedule:
     - cron: '15 4 * * 1-5'   # 9:45 AM IST - MORNING
     - cron: '45 9 * * 1-5'   # 3:15 PM IST - BTST
-    - cron: '0 11 * * 1-5'   # 4:30 PM IST - EOD
+    - cron: '00 11 * * 1-5'  # 4:30 PM IST - EOD
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
 jobs:
   trade:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
       - name: Install deps
         run: pip install --quiet yfinance pandas numpy requests pytz
-      - name: Run V8.1 - IST + Upstox Live
+      - name: Run V8.1 - 3 Times Only
+        run: python main.py
         env:
           TELEGRAM_FNO_BOT_TOKEN: ${{ secrets.TELEGRAM_FNO_BOT_TOKEN }}
           TELEGRAM_FNO_CHAT_ID: ${{ secrets.TELEGRAM_FNO_CHAT_ID }}
           UPSTOX_ACCESS_TOKEN: ${{ secrets.UPSTOX_ACCESS_TOKEN }}
           UPSTOX_TOKEN_EXPIRY: ${{ secrets.UPSTOX_TOKEN_EXPIRY }}
-          
-        run: python main.py
-      - name: Save Reports
-        if: always()
-        run: |
-          git config --global user.name "FNO V8.1"
-          git config --global user.email "fno-v8@github.com"
-          git add -A || true
-          git commit -m "V8.1 IST $(date -u)" || echo "No changes"
-          git push || echo "Push failed - Telegram already sent"
