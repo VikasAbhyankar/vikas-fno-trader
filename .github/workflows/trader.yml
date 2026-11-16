@@ -1,9 +1,9 @@
 name: FNO V8.1 AMRTS - IST + Upstox Live
 on:
   schedule:
-    - cron: '15 4 * * 1-5'   # 9:45 AM IST = 4:15 AM UTC - Morning Entry
-    - cron: '45 9 * * 1-5'   # 3:15 PM IST = 9:45 AM UTC - BTST
-    - cron: '00 11 * * 1-5'  # 4:30 PM IST = 11:00 AM UTC - EOD Report
+    - cron: '15 4 * * 1-5'   # 9:45 AM IST - MORNING
+    - cron: '45 9 * * 1-5'   # 3:15 PM IST - BTST
+    - cron: '0 11 * * 1-5'   # 4:30 PM IST - EOD
   workflow_dispatch:
 permissions:
   contents: write
