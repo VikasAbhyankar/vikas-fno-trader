@@ -1,6 +1,6 @@
 # ============================================================
-# FNO V8.1 FINAL - AMRTS - Upstox Real-Time + Yahoo History
-# Timing: 9:45 AM / 3:15 PM / 4:30 PM IST ONLY
+# FNO V8.1 FINAL - CLEAN - BOT 2 = TRADER ONLY
+# Timing: 9:45 AM / 3:15 PM / 4:30 PM IST ONLY - Mon-Fri
 # Data: Upstox Live (Entry, Nifty, VIX) + Yahoo History (EMA, RSI, ADX)
 # Token: Upstox 1-Year Analytical - No Daily Refresh - Exp 2027-11-14
 # Capital: Rs 5L Paper, Risk 1% = Rs 5000, Max 2 Trades
@@ -8,6 +8,7 @@
 #           + Sector + Gap + Event + Trailing + Top 2
 # Telegram: Your ID (Secret) + 5239892901 + 9000971028
 # PAPER TRADING ONLY - BTST only. No live order, No real GTT.
+# TIME GUARD: If GitHub runs late, exit without Telegram.
 # ============================================================
 import os, json, requests, traceback, csv
 from datetime import datetime, timedelta
@@ -40,7 +41,7 @@ def get_all_ids():
     return ids
 ALL_IDS = get_all_ids()
 
-# ========== UPSTOX CLIENT - INSIDE MAIN.PY - NO SEPARATE FILE NEEDED ==========
+# ========== UPSTOX CLIENT ==========
 def upstox_headers():
     return {"Authorization": f"Bearer {UPSTOX_TOKEN}", "Accept": "application/json"}
 def upstox_live_price(instrument_key):
@@ -77,19 +78,16 @@ def upstox_token_health():
         if days<30: return f"EXPIRING in {days}d - Renew Soon", days
         return f"OK - {days}d left", days
     except: return "OK", 999
-# ============================================================
 
 # ========== PAPER TRADING - BTST ONLY ==========
 PAPER_FILE = "paper_trades.csv"
-PAPER_QTY_DEFAULT = 100  # Virtual qty for BTST P&L display, not real qty
+PAPER_QTY_DEFAULT = 100
 
 def btst_gtt_plan(entry, sl, tgt, direction="BUY"):
     try:
         entry = float(entry); sl = float(sl); tgt = float(tgt)
-        # -0.5% buffer for BUY, +0.5% for SELL to avoid hunting
         if direction == "BUY":
             sl_gtt = round(sl * 0.995, 2)
-            # T1 = halfway to T2, T2 = full target
             t1 = round(entry + (tgt - entry) * 0.5, 2)
             t2 = round(tgt, 2)
         else:
@@ -102,13 +100,11 @@ def btst_gtt_plan(entry, sl, tgt, direction="BUY"):
         return {"entry": round(float(entry), 2), "sl_gtt": round(float(sl), 2), "t1": round(float(tgt), 2), "t2": round(float(tgt), 2)}
 
 def record_btst_paper(symbol, entry, sl, tgt, direction="BUY", qty=None):
-    # Only called for BTST run_type. qty = virtual, use paper qty if not given
     try:
         plan = btst_gtt_plan(entry, sl, tgt, direction)
         if qty is None:
             qty = PAPER_QTY_DEFAULT
         file_exists = os.path.exists(PAPER_FILE)
-        # Avoid duplicate same day same symbol same bot
         if file_exists:
             try:
                 with open(PAPER_FILE, "r") as rf:
@@ -132,8 +128,6 @@ def record_btst_paper(symbol, entry, sl, tgt, direction="BUY", qty=None):
         return btst_gtt_plan(entry, sl, tgt, direction)
 
 def check_paper_trades():
-    # Checks OPEN trades from BOTH bots (BOT1_SWING + BOT2_BTST) - shared ledger format
-    # BTST trades should exit next morning - if BTST still OPEN after 1 day, we still check SL/T1/T2
     updates = []
     if not os.path.exists(PAPER_FILE):
         return updates
@@ -155,11 +149,9 @@ def check_paper_trades():
                 qty = float(r.get("qty") or PAPER_QTY_DEFAULT)
                 if entry <= 0:
                     continue
-                # CMP - Upstox live first
                 cmp_price = None
                 try:
                     if UPSTOX_ENABLED:
-                        # symbol in CSV is without .NS, e.g. RELIANCE
                         cmp_price = upstox_live_price(to_upstox_key(symbol + ".NS"))
                 except Exception:
                     cmp_price = None
@@ -173,8 +165,6 @@ def check_paper_trades():
                 if not cmp_price or cmp_price <= 0:
                     continue
                 pnl_pct = (cmp_price - entry) / entry * 100 if entry else 0
-                # For BOT2_BTST we assume BUY direction (BTST is long only in this bot)
-                # For BOT1_SWING also BUY. So same logic: SL below, T1/T2 above
                 if cmp_price <= sl:
                     pnl = round((cmp_price - entry) * qty, 2)
                     r["status"] = "CLOSED_SL"
@@ -218,7 +208,6 @@ def format_paper_updates(paper_updates):
         txt += f"{u}\n"
     txt += "-----------------------------------\n"
     return txt
-# ============================================================
 
 FNO_STOCKS = [
 "RELIANCE.NS","TCS.NS","HDFCBANK.NS","INFY.NS","ICICIBANK.NS","SBIN.NS","LT.NS","ITC.NS",
@@ -418,10 +407,41 @@ def scan_stocks(regime, run_type):
     results=sorted(results, key=lambda x: x['score'], reverse=True)
     return results[:MAX_TRADES]
 
+def get_run_type(now):
+    # Returns MORNING / BTST / EOD or None if outside allowed windows
+    # Windows allow GitHub delay: 25 min window each
+    # 9:45 AM = 585 min, 3:15 PM = 915 min, 4:30 PM = 990 min
+    total = now.hour*60 + now.minute
+    if 580 <= total <= 610:  # 9:40 - 10:10 AM IST
+        return "MORNING"
+    if 910 <= total <= 940:  # 3:10 - 3:40 PM IST
+        return "BTST"
+    if 985 <= total <= 1015:  # 4:25 - 4:55 PM IST
+        return "EOD"
+    return None
+
 def main():
     now=datetime.now(IST)
-    if now.weekday()>4:
-        print("Weekend - No Trade"); return
+    # ===== TIME GUARD - ONLY 3 TIMINGS =====
+    # GitHub cron runs in UTC, but code checks IST. If GitHub runs late at 5 PM / 6 PM, block it.
+    # To force a manual test, set env FORCE_RUN=1, or run inside one of the 3 windows.
+    force = os.getenv("FORCE_RUN","").strip() == "1"
+    if not force:
+        if now.weekday()>4:
+            print("Weekend - No Trade"); return
+        run_type = get_run_type(now)
+        if run_type is None:
+            print(f"TIME GUARD: Now {now.strftime('%d-%m-%Y %H:%M IST')} - Not in 9:45 / 3:15 / 4:30 window. Skipping. No Telegram, no Paper.")
+            return
+    else:
+        # FORCE_RUN=1 - treat as MORNING for testing, but still need run_type
+        run_type = get_run_type(now) or "MORNING"
+        print(f"FORCE_RUN=1 - Forced run as {run_type}")
+
+    if run_type=="MORNING": run_label="MORNING ENTRY - 09:45 IST"
+    elif run_type=="BTST": run_label="BTST - 15:15 IST - Buy Today Sell Tomorrow"
+    else: run_label="EOD REPORT - 16:30 IST"
+
     token_msg="Upstox: OFF - Yahoo Only"
     if UPSTOX_ENABLED:
         health, days = upstox_token_health()
@@ -432,7 +452,6 @@ def main():
             token_msg="Upstox: EXPIRED - Using Yahoo Fallback - Renew Token!"
     else:
         print("No UPSTOX_ACCESS_TOKEN - Using Yahoo only")
-    # PAPER CHECK FIRST - check OPEN trades before new scan
     paper_updates = []
     try:
         paper_updates = check_paper_trades()
@@ -442,11 +461,6 @@ def main():
         print(f"Paper check skip {e}")
     paper_txt = format_paper_updates(paper_updates)
     is_thursday=now.weekday()==3
-    h=now.hour; m=now.minute; total_min=h*60+m
-    if 555 <= total_min <= 620: run_type="MORNING"; run_label="MORNING ENTRY - 09:45 IST"
-    elif 915 <= total_min <= 980: run_type="BTST"; run_label="BTST - 15:15 IST - Buy Today Sell Tomorrow"
-    elif 990 <= total_min <= 1080: run_type="EOD"; run_label="EOD REPORT - 16:30 IST"
-    else: run_type="MORNING"; run_label=f"MANUAL RUN - {now.strftime('%H:%M IST')}"
     print(f"V8.1 Run {run_type} {now} IST")
     regime, adx_v, vix_v, nifty_last, regime_info, is_choppy, data_src = detect_regime_and_choppy()
     print(regime_info)
@@ -480,18 +494,14 @@ def main():
              f"Regime: <b>{regime}</b>\n{regime_info}\n"
              f"Reason: No stock passed - SL too high / Gap >1.5% / Sector Disagree / Range too small\n{paper_txt}{token_msg}\nCapital: Rs 5L Paper")
         send_tg(msg); print("No picks"); return
-    # PAPER RECORD - BTST ONLY, not MORNING
     btst_plans = {}
     if run_type=="BTST":
         for p in picks:
             try:
-                # For BTST, if direction is SELL we still record as BUY paper? No - BTST SELL is not valid for overnight long.
-                # Only record BUY BTST as paper. SELL BTST skipped for paper.
                 if p['dir'] == "BUY":
                     plan = record_btst_paper(p['sym'], p['entry'], p['sl'], p['tgt'], direction="BUY", qty=p['qty'])
                     btst_plans[p['sym']] = plan
                 else:
-                    # For SELL BTST, show GTT but do NOT record as paper long
                     btst_plans[p['sym']] = btst_gtt_plan(p['entry'], p['sl'], p['tgt'], direction="SELL")
             except Exception as e:
                 print(f"Paper BTST record skip {p['sym']} {e}")
@@ -501,7 +511,6 @@ def main():
         extra=""
         if run_type=="BTST": extra="\n⏰ Sell: Tomorrow 9:45 AM IST | SL: Close-Based - Exit only if 2x 15-min closes below SL"
         if "Sideways" in p['strat']: extra+="\n⚠️ Sideways - 50% Size - Book at VWAP / Mid"
-        # PAPER GTT line - BTST only
         paper_line = ""
         if run_type=="BTST":
             plan = btst_plans.get(p['sym'])
