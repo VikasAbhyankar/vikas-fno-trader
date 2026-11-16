@@ -7,8 +7,9 @@
 # Features: Regime + Choppy + Sideways S/R + Smart SL Anti-Hunt
 #           + Sector + Gap + Event + Trailing + Top 2
 # Telegram: Your ID (Secret) + 5239892901 + 9000971028
+# PAPER TRADING ONLY - BTST only. No live order, No real GTT.
 # ============================================================
-import os, json, requests, traceback
+import os, json, requests, traceback, csv
 from datetime import datetime, timedelta
 import pytz
 import yfinance as yf
@@ -76,6 +77,147 @@ def upstox_token_health():
         if days<30: return f"EXPIRING in {days}d - Renew Soon", days
         return f"OK - {days}d left", days
     except: return "OK", 999
+# ============================================================
+
+# ========== PAPER TRADING - BTST ONLY ==========
+PAPER_FILE = "paper_trades.csv"
+PAPER_QTY_DEFAULT = 100  # Virtual qty for BTST P&L display, not real qty
+
+def btst_gtt_plan(entry, sl, tgt, direction="BUY"):
+    try:
+        entry = float(entry); sl = float(sl); tgt = float(tgt)
+        # -0.5% buffer for BUY, +0.5% for SELL to avoid hunting
+        if direction == "BUY":
+            sl_gtt = round(sl * 0.995, 2)
+            # T1 = halfway to T2, T2 = full target
+            t1 = round(entry + (tgt - entry) * 0.5, 2)
+            t2 = round(tgt, 2)
+        else:
+            sl_gtt = round(sl * 1.005, 2)
+            t1 = round(entry - (entry - tgt) * 0.5, 2)
+            t2 = round(tgt, 2)
+        return {"entry": round(entry, 2), "sl_gtt": sl_gtt, "t1": t1, "t2": t2}
+    except Exception as e:
+        print(f"btst_gtt_plan err {e}")
+        return {"entry": round(float(entry), 2), "sl_gtt": round(float(sl), 2), "t1": round(float(tgt), 2), "t2": round(float(tgt), 2)}
+
+def record_btst_paper(symbol, entry, sl, tgt, direction="BUY", qty=None):
+    # Only called for BTST run_type. qty = virtual, use paper qty if not given
+    try:
+        plan = btst_gtt_plan(entry, sl, tgt, direction)
+        if qty is None:
+            qty = PAPER_QTY_DEFAULT
+        file_exists = os.path.exists(PAPER_FILE)
+        # Avoid duplicate same day same symbol same bot
+        if file_exists:
+            try:
+                with open(PAPER_FILE, "r") as rf:
+                    rows = list(csv.DictReader(rf))
+                    today = datetime.now(IST).strftime("%Y-%m-%d")
+                    for r in rows:
+                        if r.get("date") == today and r.get("bot") == "BOT2_BTST" and r.get("symbol") == symbol and r.get("status") == "OPEN":
+                            print(f"Paper duplicate skip BOT2_BTST {symbol}")
+                            return plan
+            except Exception:
+                pass
+        with open(PAPER_FILE, "a", newline="") as f:
+            w = csv.writer(f)
+            if not file_exists:
+                w.writerow(["date", "bot", "symbol", "entry", "sl", "t1", "t2", "qty", "status", "exit_price", "pnl", "exit_reason"])
+            w.writerow([datetime.now(IST).strftime("%Y-%m-%d"), "BOT2_BTST", symbol, plan["entry"], plan["sl_gtt"], plan["t1"], plan["t2"], qty, "OPEN", "", "", ""])
+        print(f"Paper BTST recorded {symbol} Entry {plan['entry']} SL {plan['sl_gtt']} T1 {plan['t1']} T2 {plan['t2']}")
+        return plan
+    except Exception as e:
+        print(f"record_btst_paper err {e}")
+        return btst_gtt_plan(entry, sl, tgt, direction)
+
+def check_paper_trades():
+    # Checks OPEN trades from BOTH bots (BOT1_SWING + BOT2_BTST) - shared ledger format
+    # BTST trades should exit next morning - if BTST still OPEN after 1 day, we still check SL/T1/T2
+    updates = []
+    if not os.path.exists(PAPER_FILE):
+        return updates
+    try:
+        with open(PAPER_FILE, "r") as f:
+            rows = list(csv.DictReader(f))
+        if not rows:
+            return updates
+        changed = False
+        for r in rows:
+            if r.get("status") != "OPEN":
+                continue
+            symbol = r.get("symbol", "")
+            try:
+                entry = float(r.get("entry") or 0)
+                sl = float(r.get("sl") or 0)
+                t1 = float(r.get("t1") or 0)
+                t2 = float(r.get("t2") or 0)
+                qty = float(r.get("qty") or PAPER_QTY_DEFAULT)
+                if entry <= 0:
+                    continue
+                # CMP - Upstox live first
+                cmp_price = None
+                try:
+                    if UPSTOX_ENABLED:
+                        # symbol in CSV is without .NS, e.g. RELIANCE
+                        cmp_price = upstox_live_price(to_upstox_key(symbol + ".NS"))
+                except Exception:
+                    cmp_price = None
+                if not cmp_price:
+                    try:
+                        df = get_data(symbol + ".NS", period="5d", interval="1d")
+                        if df is not None and len(df) > 0:
+                            cmp_price = float(df['Close'].iloc[-1])
+                    except Exception:
+                        cmp_price = None
+                if not cmp_price or cmp_price <= 0:
+                    continue
+                pnl_pct = (cmp_price - entry) / entry * 100 if entry else 0
+                # For BOT2_BTST we assume BUY direction (BTST is long only in this bot)
+                # For BOT1_SWING also BUY. So same logic: SL below, T1/T2 above
+                if cmp_price <= sl:
+                    pnl = round((cmp_price - entry) * qty, 2)
+                    r["status"] = "CLOSED_SL"
+                    r["exit_price"] = cmp_price
+                    r["pnl"] = pnl
+                    r["exit_reason"] = "SL HIT"
+                    updates.append(f"{symbol} ({r.get('bot')}) PAPER EXIT - SL HIT @ {cmp_price:.0f} P&L {pnl_pct:.1f}% Rs {pnl:.0f} (PAPER)")
+                    changed = True
+                elif t2 > 0 and cmp_price >= t2:
+                    pnl = round((cmp_price - entry) * qty, 2)
+                    r["status"] = "CLOSED_T2"
+                    r["exit_price"] = cmp_price
+                    r["pnl"] = pnl
+                    r["exit_reason"] = "T2 HIT"
+                    updates.append(f"{symbol} ({r.get('bot')}) PAPER EXIT - T2 HIT @ {cmp_price:.0f} P&L {pnl_pct:.1f}% Rs {pnl:.0f} (PAPER)")
+                    changed = True
+                elif t1 > 0 and cmp_price >= t1:
+                    if r.get("exit_reason") != "T1_HIT":
+                        pnl_50 = round((t1 - entry) * (qty * 0.5), 2)
+                        r["exit_reason"] = "T1_HIT"
+                        updates.append(f"{symbol} ({r.get('bot')}) PAPER T1 HIT @ {t1:.0f} P&L {pnl_pct:.1f}% Book 50% Rs {pnl_50:.0f} | Trail SL to Entry {entry:.0f} (PAPER)")
+                        changed = True
+            except Exception as e:
+                print(f"check_paper {symbol} err {e}")
+                continue
+        if changed:
+            with open(PAPER_FILE, "w", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=["date", "bot", "symbol", "entry", "sl", "t1", "t2", "qty", "status", "exit_price", "pnl", "exit_reason"])
+                w.writeheader()
+                w.writerows(rows)
+        return updates
+    except Exception as e:
+        print(f"check_paper_trades err {e}")
+        return updates
+
+def format_paper_updates(paper_updates):
+    if not paper_updates:
+        return ""
+    txt = "\n--- PAPER TRADE UPDATES (VIRTUAL) ---\n"
+    for u in paper_updates:
+        txt += f"{u}\n"
+    txt += "-----------------------------------\n"
+    return txt
 # ============================================================
 
 FNO_STOCKS = [
@@ -181,7 +323,6 @@ def detect_regime_and_choppy():
     vix_v=float(vix['Close'].iloc[-1]) if vix is not None else 14
     vix_prev=float(vix['Close'].iloc[-2]) if vix is not None and len(vix)>1 else vix_v
     vix_jump=(vix_v-vix_prev)/vix_prev*100 if vix_prev else 0
-    # V8.1 - Override with Upstox Live Nifty + VIX
     data_source="Yahoo (Delayed)"
     if UPSTOX_ENABLED:
         live_nifty=upstox_live_price("NSE_INDEX|Nifty 50")
@@ -226,7 +367,6 @@ def scan_stocks(regime, run_type):
             adx,_,_=adx_calc(df); adx_v=float(adx.iloc[-1])
             prev_high=float(high.iloc[-2]); prev_low=float(low.iloc[-2])
             sup=prev_low; res=prev_high
-            # V8.1 - Override Yahoo price with Upstox Live price
             live_price=None
             if UPSTOX_ENABLED:
                 live_price=upstox_live_price(to_upstox_key(sym))
@@ -235,7 +375,7 @@ def scan_stocks(regime, run_type):
                     last=live_price
             rng_pct=(res-sup)/last*100 if last else 0
             day_move=abs(last-prev)/prev*100
-            if run_type=="MORNING" and day_move>2.5: continue  # Gap Filter - Don't chase
+            if run_type=="MORNING" and day_move>2.5: continue
             sector_ok=True
             sec_sym=SECTOR_MAP.get(sym)
             if sec_sym:
@@ -282,7 +422,6 @@ def main():
     now=datetime.now(IST)
     if now.weekday()>4:
         print("Weekend - No Trade"); return
-    # V8.1 - Upstox Token Health Check
     token_msg="Upstox: OFF - Yahoo Only"
     if UPSTOX_ENABLED:
         health, days = upstox_token_health()
@@ -293,6 +432,15 @@ def main():
             token_msg="Upstox: EXPIRED - Using Yahoo Fallback - Renew Token!"
     else:
         print("No UPSTOX_ACCESS_TOKEN - Using Yahoo only")
+    # PAPER CHECK FIRST - check OPEN trades before new scan
+    paper_updates = []
+    try:
+        paper_updates = check_paper_trades()
+        if paper_updates:
+            print(f"Paper updates: {paper_updates}")
+    except Exception as e:
+        print(f"Paper check skip {e}")
+    paper_txt = format_paper_updates(paper_updates)
     is_thursday=now.weekday()==3
     h=now.hour; m=now.minute; total_min=h*60+m
     if 555 <= total_min <= 620: run_type="MORNING"; run_label="MORNING ENTRY - 09:45 IST"
@@ -309,6 +457,7 @@ def main():
              f"Reason: 3+/5 Choppy Tests True\n"
              f"Action: <b>PROTECT CAPITAL - No Trade</b>\n"
              f"Next Check: {'3:15 PM IST BTST' if run_type=='MORNING' else 'Tomorrow 9:45 AM IST'}\n"
+             f"{paper_txt}"
              f"{token_msg}")
         send_tg(msg); print("Choppy - No Trade"); return
     if run_type=="EOD":
@@ -318,34 +467,61 @@ def main():
              f"Tomorrow Plan: {'Sideways - Buy at Support / Sell at Resistance, 50% size' if regime=='SIDEWAYS' else regime}\n"
              f"Thursday Note: {'Tomorrow is Friday - No BTST Today' if is_thursday else 'BTST allowed tomorrow if not Choppy'}\n"
              f"Smart SL: Max 1.0% Intraday, 1.5% BTST, 1.8% Swing - Buffered, Non-Round, Close-Based\n"
+             f"{paper_txt}"
              f"{token_msg}\nCapital: Rs 5L Paper")
         send_tg(msg); print("EOD Sent"); return
     if run_type=="BTST" and is_thursday:
         msg=(f"🚫 <b>FNO V8.1 - NO BTST - Thursday - 15:15 IST</b>\nRegime: {regime}\n{regime_info}\n"
-             f"Reason: Thursday BTST = Friday Gap Risk High\nAction: Book all BTST, No new BTST\nNext: Tomorrow 9:45 AM IST")
+             f"Reason: Thursday BTST = Friday Gap Risk High\nAction: Book all BTST, No new BTST\nNext: Tomorrow 9:45 AM IST\n{paper_txt}")
         send_tg(msg); print("Thursday No BTST"); return
     picks=scan_stocks(regime, run_type)
     if not picks:
         msg=(f"📊 <b>FNO V8.1 - NO TRADE - {run_label}</b>\n📅 {now.strftime('%d-%m-%Y %H:%M IST')}\n"
              f"Regime: <b>{regime}</b>\n{regime_info}\n"
-             f"Reason: No stock passed - SL too high / Gap >1.5% / Sector Disagree / Range too small\n{token_msg}\nCapital: Rs 5L Paper")
+             f"Reason: No stock passed - SL too high / Gap >1.5% / Sector Disagree / Range too small\n{paper_txt}{token_msg}\nCapital: Rs 5L Paper")
         send_tg(msg); print("No picks"); return
+    # PAPER RECORD - BTST ONLY, not MORNING
+    btst_plans = {}
+    if run_type=="BTST":
+        for p in picks:
+            try:
+                # For BTST, if direction is SELL we still record as BUY paper? No - BTST SELL is not valid for overnight long.
+                # Only record BUY BTST as paper. SELL BTST skipped for paper.
+                if p['dir'] == "BUY":
+                    plan = record_btst_paper(p['sym'], p['entry'], p['sl'], p['tgt'], direction="BUY", qty=p['qty'])
+                    btst_plans[p['sym']] = plan
+                else:
+                    # For SELL BTST, show GTT but do NOT record as paper long
+                    btst_plans[p['sym']] = btst_gtt_plan(p['entry'], p['sl'], p['tgt'], direction="SELL")
+            except Exception as e:
+                print(f"Paper BTST record skip {p['sym']} {e}")
     lines=[]
     for i,p in enumerate(picks,1):
         emoji="🟢" if p['dir']=="BUY" else "🔴"
         extra=""
         if run_type=="BTST": extra="\n⏰ Sell: Tomorrow 9:45 AM IST | SL: Close-Based - Exit only if 2x 15-min closes below SL"
         if "Sideways" in p['strat']: extra+="\n⚠️ Sideways - 50% Size - Book at VWAP / Mid"
+        # PAPER GTT line - BTST only
+        paper_line = ""
+        if run_type=="BTST":
+            plan = btst_plans.get(p['sym'])
+            if plan:
+                if p['dir']=="BUY":
+                    paper_line = f"\n📝 PAPER BTST: Buy Avg {plan['entry']} | SL GTT {plan['sl_gtt']} (100%) | T1 GTT {plan['t1']} (50%) | T2 GTT {plan['t2']} (50%) | Qty {p['qty']} VIRTUAL - No real order"
+                else:
+                    paper_line = f"\n📝 PAPER: SELL BTST not tracked as Paper Long - GTT for info only: SL {plan['sl_gtt']} T1 {plan['t1']} T2 {plan['t2']}"
         lines.append(f"\n{i}. {emoji} <b>{p['dir']} {p['sym']}</b> @ Rs {p['entry']} [{p['src']}]\n"
             f"Strategy: {p['strat']} | Score: {p['score']}/100 | RSI {p['rsi']}\n"
             f"Support Rs {p['sup']} | Resistance Rs {p['res']} | Range {p['rng']}%\n"
             f"Smart SL Rs {p['sl']} ({p['sl_pct']}% - Buffered, Anti-Hunt, Non-Round)\n"
             f"Target Rs {p['tgt']} (RR 1:2)\nQty: {p['qty']} (Risk Rs {abs(p['entry']-p['sl'])*p['qty']:.0f})\n"
-            f"Trailing: Book 50% at 50% Target, Move SL to Breakeven{extra}")
+            f"Trailing: Book 50% at 50% Target, Move SL to Breakeven{extra}{paper_line}")
     action_note="BUY TODAY - Sell Tomorrow 9:45 AM IST" if run_type=="BTST" else "Entry Now - 9:45 AM IST - Do NOT Chase if Gap >1.5%"
+    paper_header = "\n<b>PAPER TRADE ONLY - BTST</b> - No real order placed\n" if run_type=="BTST" else ""
     msg=(f"📊 <b>FNO V8.1 - {run_label}</b>\n📅 {now.strftime('%d-%m-%Y %H:%M IST')}\n"
          f"Regime: <b>{regime}</b>\n{regime_info}\nAction: {action_note}\n"
-         f"Max Trades: 2 | Capital: Rs 5L Paper | Risk 1% per trade\n{''.join(lines)}\n\n"
+         f"Max Trades: 2 | Capital: Rs 5L Paper | Risk 1% per trade\n{paper_header}{paper_txt}"
+         f"{''.join(lines)}\n\n"
          f"⚠️ Smart SL: Do NOT move SL to Support / Round Number. SL is hidden below Support + Buffer. Exit only on 2x 15-min closes below SL (ignore wick).\n{token_msg}")
     send_tg(msg)
     print(f"V8.1 Complete - {len(picks)} picks sent")
