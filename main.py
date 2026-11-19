@@ -1,8 +1,8 @@
 # ============================================================
-# FNO V8.1 FINAL - CLEAN - BOT 2 = TRADER ONLY
+# FNO V8.2 FINAL - CLEAN - BOT 2 = TRADER ONLY
 # Timing: 9:45 AM / 3:00 PM BTST / 4:30 PM IST - Mon-Fri
 # Data: Upstox Live (Entry, Nifty, VIX) + Yahoo History (EMA, RSI, ADX)
-# Token: Upstox 1-Year Analytical - No Daily Refresh - Exp 2027-11-14
+# Token: Upstox 1-Year Analytical - No Daily Refresh - Exp 2027-11-18
 # Capital: Rs 5L Paper, Risk 1% = Rs 5000, Max 2 Trades
 # Features: Regime + Choppy + Sideways S/R + Smart SL Anti-Hunt
 #           + Sector + Gap + Event + Trailing + Top 2
@@ -10,6 +10,7 @@
 # PAPER TRADING ONLY - BTST only. No live order, No real GTT.
 # TIME GUARD: REMOVED - Manual run allowed anytime.
 # BTST WINDOW: 3:00 PM (2:55 - 3:40 PM)
+# V8.2 FIX: Expiry never blocks Upstox, LTP fallback added, Debug added
 # ============================================================
 import os, json, requests, traceback, csv
 from datetime import datetime, timedelta
@@ -26,8 +27,8 @@ MAX_TRADES = 2
 BOT_TOKEN = os.getenv("TELEGRAM_FNO_BOT_TOKEN", "")
 CHAT_ID_ENV = os.getenv("TELEGRAM_FNO_CHAT_ID", "")
 UPSTOX_TOKEN = os.getenv("UPSTOX_ACCESS_TOKEN", "")
-UPSTOX_EXPIRY = os.getenv("UPSTOX_TOKEN_EXPIRY", "2027-11-14")
-UPSTOX_ENABLED = bool(UPSTOX_TOKEN)
+UPSTOX_EXPIRY = os.getenv("UPSTOX_TOKEN_EXPIRY", "2027-11-18")
+UPSTOX_ENABLED = bool(UPSTOX_TOKEN and UPSTOX_TOKEN.strip())
 UPSTOX_BASE = "https://api.upstox.com/v3"
 
 FRIEND_IDS = ["5239892901", "9000971028"]
@@ -42,23 +43,54 @@ def get_all_ids():
     return ids
 ALL_IDS = get_all_ids()
 
-# ========== UPSTOX CLIENT ==========
+# ========== UPSTOX CLIENT - V8.2 FIXED ==========
 def upstox_headers():
-    return {"Authorization": f"Bearer {UPSTOX_TOKEN}", "Accept": "application/json"}
+    return {"Authorization": f"Bearer {UPSTOX_TOKEN.strip()}", "Accept": "application/json"}
 def upstox_live_price(instrument_key):
-    if not UPSTOX_ENABLED: return None
+    if not UPSTOX_ENABLED:
+        print("Upstox disabled - no token in secret")
+        return None
+    # Try 1: v3 quotes
     try:
         r=requests.get(f"{UPSTOX_BASE}/market-quote/quotes", headers=upstox_headers(),
                        params={"instrument_key": instrument_key}, timeout=10)
-        if r.status_code!=200:
-            print(f"Upstox fail {instrument_key} {r.status_code} {r.text[:150]}")
-            return None
-        data=r.json().get("data", {})
-        q=data.get(instrument_key, {})
-        lp=q.get("last_price") or q.get("ltp")
-        return float(lp) if lp else None
+        print(f"DEBUG Upstox quotes {instrument_key} status={r.status_code} resp={r.text[:300]}")
+        if r.status_code==200:
+            data=r.json().get("data", {})
+            q=data.get(instrument_key, {})
+            lp=q.get("last_price") or q.get("ltp") or q.get("last_traded_price")
+            if lp:
+                return float(lp)
+            print(f"DEBUG Upstox quotes empty for {instrument_key}, trying LTP")
     except Exception as e:
-        print(f"Upstox error {e}"); return None
+        print(f"Upstox quotes error {instrument_key} {e}")
+    # Try 2: v3 LTP - works with Analytical token even when quotes fails
+    try:
+        r2=requests.get(f"{UPSTOX_BASE}/market-quote/ltp", headers=upstox_headers(),
+                       params={"instrument_key": instrument_key}, timeout=10)
+        print(f"DEBUG Upstox LTP {instrument_key} status={r2.status_code} resp={r2.text[:300]}")
+        if r2.status_code==200:
+            data=r2.json().get("data", {})
+            q=data.get(instrument_key, {})
+            lp=q.get("last_price") or q.get("ltp") or q.get("last_traded_price")
+            if lp:
+                return float(lp)
+    except Exception as e:
+        print(f"Upstox LTP error {instrument_key} {e}")
+    # Try 3: v2 quotes fallback
+    try:
+        r3=requests.get("https://api.upstox.com/v2/market-quote/quotes", headers=upstox_headers(),
+                       params={"instrument_key": instrument_key}, timeout=10)
+        print(f"DEBUG Upstox v2 {instrument_key} status={r3.status_code} resp={r3.text[:300]}")
+        if r3.status_code==200:
+            data=r3.json().get("data", {})
+            q=data.get(instrument_key, {})
+            lp=q.get("last_price") or q.get("ltp")
+            if lp:
+                return float(lp)
+    except Exception as e:
+        print(f"Upstox v2 error {e}")
+    return None
 def upstox_candles(instrument_key, interval="15minute"):
     if not UPSTOX_ENABLED: return None
     try:
@@ -72,13 +104,21 @@ def to_upstox_key(yahoo_sym):
     return f"NSE_EQ|{base}"
 def upstox_token_health():
     try:
-        exp=datetime.strptime(UPSTOX_EXPIRY, "%Y-%m-%d").date()
+        clean = str(UPSTOX_EXPIRY).strip().strip('"').strip("'").strip()
+        # Handle if secret has datetime like 2027-11-18 00:00:00
+        if " " in clean:
+            clean = clean.split(" ")[0]
+        print(f"DEBUG Expiry raw='{UPSTOX_EXPIRY}' clean='{clean}'")
+        exp=datetime.strptime(clean, "%Y-%m-%d").date()
         today=datetime.now(IST).date()
         days=(exp-today).days
+        print(f"DEBUG Expiry days left={days}")
         if days<0: return "EXPIRED", days
         if days<30: return f"EXPIRING in {days}d - Renew Soon", days
         return f"OK - {days}d left", days
-    except: return "OK", 999
+    except Exception as e:
+        print(f"DEBUG Expiry parse fail '{UPSTOX_EXPIRY}' err {e} - treating as OK")
+        return "OK", 999
 
 # ========== PAPER TRADING - BTST ONLY ==========
 PAPER_FILE = "paper_trades.csv"
@@ -409,29 +449,23 @@ def scan_stocks(regime, run_type):
     return results[:MAX_TRADES]
 
 def get_run_type(now):
-    # Returns MORNING / BTST / EOD or None if outside allowed windows
-    # UPDATED: BTST now 3:00 PM - 2:55 PM to 3:40 PM
-    # 9:45 AM = 585 min, 3:00 PM = 900 min, 4:30 PM = 990 min
     total = now.hour*60 + now.minute
-    if 580 <= total <= 610:  # 9:40 - 10:10 AM IST
+    if 580 <= total <= 610:
         return "MORNING"
-    if 895 <= total <= 940:  # 2:55 - 3:40 PM IST - BTST at 3:00 PM
+    if 895 <= total <= 940:
         return "BTST"
-    if 985 <= total <= 1015:  # 4:25 - 4:55 PM IST
+    if 985 <= total <= 1015:
         return "EOD"
     return None
 
 def main():
     now=datetime.now(IST)
-    # ===== TIME GUARD REMOVED - RUN ANYTIME =====
-    # Smart fallback for manual run: decide by clock, not always MORNING
-    # Before 2:30 PM -> MORNING, 2:30 PM to 4:10 PM -> BTST, After 4:10 PM -> EOD
     total = now.hour*60 + now.minute
     run_type = get_run_type(now)
     if run_type is None:
-        if total >= 870 and total < 970:  # 2:30 PM - 4:10 PM
+        if total >= 870 and total < 970:
             run_type = "BTST"
-        elif total >= 970:  # After 4:10 PM
+        elif total >= 970:
             run_type = "EOD"
         else:
             run_type = "MORNING"
@@ -441,14 +475,13 @@ def main():
     elif run_type=="BTST": run_label="BTST - 15:00 IST - Buy Today Sell Tomorrow"
     else: run_label="EOD REPORT - 16:30 IST"
 
+    # V8.2 - Expiry is INFO ONLY, never blocks Upstox
     token_msg="Upstox: OFF - Yahoo Only"
     if UPSTOX_ENABLED:
         health, days = upstox_token_health()
-        token_msg=f"Upstox: {health} | Exp {UPSTOX_EXPIRY}"
+        token_msg=f"Upstox: {health} | Exp {UPSTOX_EXPIRY.strip()}"
         print(token_msg)
-        if health=="EXPIRED":
-            print("Token expired - Fallback to Yahoo")
-            token_msg="Upstox: EXPIRED - Using Yahoo Fallback - Renew Token!"
+        print("Token health is info only - will still try Upstox Live (auto-refresh token)")
     else:
         print("No UPSTOX_ACCESS_TOKEN - Using Yahoo only")
     paper_updates = []
@@ -460,11 +493,11 @@ def main():
         print(f"Paper check skip {e}")
     paper_txt = format_paper_updates(paper_updates)
     is_thursday=now.weekday()==3
-    print(f"V8.1 Run {run_type} {now} IST")
+    print(f"V8.2 Run {run_type} {now} IST")
     regime, adx_v, vix_v, nifty_last, regime_info, is_choppy, data_src = detect_regime_and_choppy()
     print(regime_info)
     if is_choppy and run_type in ["MORNING","BTST"]:
-        msg=(f"🚫 <b>FNO V8.1 - NO TRADE - {run_label}</b>\n"
+        msg=(f"🚫 <b>FNO V8.2 - NO TRADE - {run_label}</b>\n"
              f"📅 {now.strftime('%d-%m-%Y %H:%M IST')}\n"
              f"Regime: <b>CHOPPY - NO TRADE</b>\n{regime_info}\n"
              f"Reason: 3+/5 Choppy Tests True\n"
@@ -474,7 +507,7 @@ def main():
              f"{token_msg}")
         send_tg(msg); print("Choppy - No Trade"); return
     if run_type=="EOD":
-        msg=(f"📊 <b>FNO V8.1 - EOD REPORT - 16:30 IST</b>\n"
+        msg=(f"📊 <b>FNO V8.2 - EOD REPORT - 16:30 IST</b>\n"
              f"📅 {now.strftime('%d-%m-%Y')}\n"
              f"Regime Today: <b>{regime}</b>\n{regime_info}\n"
              f"Tomorrow Plan: {'Sideways - Buy at Support / Sell at Resistance, 50% size' if regime=='SIDEWAYS' else regime}\n"
@@ -484,12 +517,12 @@ def main():
              f"{token_msg}\nCapital: Rs 5L Paper")
         send_tg(msg); print("EOD Sent"); return
     if run_type=="BTST" and is_thursday:
-        msg=(f"🚫 <b>FNO V8.1 - NO BTST - Thursday - 15:00 IST</b>\nRegime: {regime}\n{regime_info}\n"
+        msg=(f"🚫 <b>FNO V8.2 - NO BTST - Thursday - 15:00 IST</b>\nRegime: {regime}\n{regime_info}\n"
              f"Reason: Thursday BTST = Friday Gap Risk High\nAction: Book all BTST, No new BTST\nNext: Tomorrow 9:45 AM IST\n{paper_txt}")
         send_tg(msg); print("Thursday No BTST"); return
     picks=scan_stocks(regime, run_type)
     if not picks:
-        msg=(f"📊 <b>FNO V8.1 - NO TRADE - {run_label}</b>\n📅 {now.strftime('%d-%m-%Y %H:%M IST')}\n"
+        msg=(f"📊 <b>FNO V8.2 - NO TRADE - {run_label}</b>\n📅 {now.strftime('%d-%m-%Y %H:%M IST')}\n"
              f"Regime: <b>{regime}</b>\n{regime_info}\n"
              f"Reason: No stock passed - SL too high / Gap >1.5% / Sector Disagree / Range too small\n{paper_txt}{token_msg}\nCapital: Rs 5L Paper")
         send_tg(msg); print("No picks"); return
@@ -526,17 +559,17 @@ def main():
             f"Trailing: Book 50% at 50% Target, Move SL to Breakeven{extra}{paper_line}")
     action_note="BUY TODAY - Sell Tomorrow 9:45 AM IST" if run_type=="BTST" else "Entry Now - 9:45 AM IST - Do NOT Chase if Gap >1.5%"
     paper_header = "\n<b>PAPER TRADE ONLY - BTST</b> - No real order placed\n" if run_type=="BTST" else ""
-    msg=(f"📊 <b>FNO V8.1 - {run_label}</b>\n📅 {now.strftime('%d-%m-%Y %H:%M IST')}\n"
+    msg=(f"📊 <b>FNO V8.2 - {run_label}</b>\n📅 {now.strftime('%d-%m-%Y %H:%M IST')}\n"
          f"Regime: <b>{regime}</b>\n{regime_info}\nAction: {action_note}\n"
          f"Max Trades: 2 | Capital: Rs 5L Paper | Risk 1% per trade\n{paper_header}{paper_txt}"
          f"{''.join(lines)}\n\n"
          f"⚠️ Smart SL: Do NOT move SL to Support / Round Number. SL is hidden below Support + Buffer. Exit only on 2x 15-min closes below SL (ignore wick).\n{token_msg}")
     send_tg(msg)
-    print(f"V8.1 Complete - {len(picks)} picks sent")
+    print(f"V8.2 Complete - {len(picks)} picks sent")
 
 if __name__=="__main__":
     try: main()
     except Exception as e:
         print(traceback.format_exc())
-        try: send_tg(f"⚠️ V8.1 Error: {e}")
+        try: send_tg(f"⚠️ V8.2 Error: {e}")
         except: pass
