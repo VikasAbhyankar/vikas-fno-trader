@@ -8,7 +8,7 @@
 #           + Sector + Gap + Event + Trailing + Top 2
 # Telegram: Your ID (Secret) + 5239892901 + 9000971028
 # PAPER TRADING ONLY - BTST only. No live order, No real GTT.
-# TIME GUARD: If GitHub runs late, exit without Telegram.
+# TIME GUARD: REMOVED - Manual run allowed anytime.
 # ============================================================
 import os, json, requests, traceback, csv
 from datetime import datetime, timedelta
@@ -422,21 +422,10 @@ def get_run_type(now):
 
 def main():
     now=datetime.now(IST)
-    # ===== TIME GUARD - ONLY 3 TIMINGS =====
-    # GitHub cron runs in UTC, but code checks IST. If GitHub runs late at 5 PM / 6 PM, block it.
-    # To force a manual test, set env FORCE_RUN=1, or run inside one of the 3 windows.
-    force = os.getenv("FORCE_RUN","").strip() == "1"
-    if not force:
-        if now.weekday()>4:
-            print("Weekend - No Trade"); return
-        run_type = get_run_type(now)
-        if run_type is None:
-            print(f"TIME GUARD: Now {now.strftime('%d-%m-%Y %H:%M IST')} - Not in 9:45 / 3:15 / 4:30 window. Skipping. No Telegram, no Paper.")
-            return
-    else:
-        # FORCE_RUN=1 - treat as MORNING for testing, but still need run_type
-        run_type = get_run_type(now) or "MORNING"
-        print(f"FORCE_RUN=1 - Forced run as {run_type}")
+    # ===== TIME GUARD REMOVED - RUN ANYTIME =====
+    # Manual run allowed anytime. If outside 9:45 / 3:15 / 4:30, treat as MORNING.
+    run_type = get_run_type(now) or "MORNING"
+    print(f"Manual run - Treated as {run_type} - Time guard disabled")
 
     if run_type=="MORNING": run_label="MORNING ENTRY - 09:45 IST"
     elif run_type=="BTST": run_label="BTST - 15:15 IST - Buy Today Sell Tomorrow"
