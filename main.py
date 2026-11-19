@@ -1,6 +1,6 @@
 # ============================================================
 # FNO V8.1 FINAL - CLEAN - BOT 2 = TRADER ONLY
-# Timing: 9:45 AM / 3:15 PM / 4:30 PM IST ONLY - Mon-Fri
+# Timing: 9:45 AM / 3:00 PM BTST / 4:30 PM IST - Mon-Fri
 # Data: Upstox Live (Entry, Nifty, VIX) + Yahoo History (EMA, RSI, ADX)
 # Token: Upstox 1-Year Analytical - No Daily Refresh - Exp 2027-11-14
 # Capital: Rs 5L Paper, Risk 1% = Rs 5000, Max 2 Trades
@@ -9,6 +9,7 @@
 # Telegram: Your ID (Secret) + 5239892901 + 9000971028
 # PAPER TRADING ONLY - BTST only. No live order, No real GTT.
 # TIME GUARD: REMOVED - Manual run allowed anytime.
+# BTST WINDOW: 3:00 PM (2:55 - 3:40 PM)
 # ============================================================
 import os, json, requests, traceback, csv
 from datetime import datetime, timedelta
@@ -409,12 +410,12 @@ def scan_stocks(regime, run_type):
 
 def get_run_type(now):
     # Returns MORNING / BTST / EOD or None if outside allowed windows
-    # Windows allow GitHub delay: 25 min window each
-    # 9:45 AM = 585 min, 3:15 PM = 915 min, 4:30 PM = 990 min
+    # UPDATED: BTST now 3:00 PM - 2:55 PM to 3:40 PM
+    # 9:45 AM = 585 min, 3:00 PM = 900 min, 4:30 PM = 990 min
     total = now.hour*60 + now.minute
     if 580 <= total <= 610:  # 9:40 - 10:10 AM IST
         return "MORNING"
-    if 910 <= total <= 940:  # 3:10 - 3:40 PM IST
+    if 895 <= total <= 940:  # 2:55 - 3:40 PM IST - BTST at 3:00 PM
         return "BTST"
     if 985 <= total <= 1015:  # 4:25 - 4:55 PM IST
         return "EOD"
@@ -423,12 +424,21 @@ def get_run_type(now):
 def main():
     now=datetime.now(IST)
     # ===== TIME GUARD REMOVED - RUN ANYTIME =====
-    # Manual run allowed anytime. If outside 9:45 / 3:15 / 4:30, treat as MORNING.
-    run_type = get_run_type(now) or "MORNING"
-    print(f"Manual run - Treated as {run_type} - Time guard disabled")
+    # Smart fallback for manual run: decide by clock, not always MORNING
+    # Before 2:30 PM -> MORNING, 2:30 PM to 4:10 PM -> BTST, After 4:10 PM -> EOD
+    total = now.hour*60 + now.minute
+    run_type = get_run_type(now)
+    if run_type is None:
+        if total >= 870 and total < 970:  # 2:30 PM - 4:10 PM
+            run_type = "BTST"
+        elif total >= 970:  # After 4:10 PM
+            run_type = "EOD"
+        else:
+            run_type = "MORNING"
+    print(f"Manual run - Treated as {run_type} at {now.strftime('%H:%M IST')} - Time guard disabled")
 
     if run_type=="MORNING": run_label="MORNING ENTRY - 09:45 IST"
-    elif run_type=="BTST": run_label="BTST - 15:15 IST - Buy Today Sell Tomorrow"
+    elif run_type=="BTST": run_label="BTST - 15:00 IST - Buy Today Sell Tomorrow"
     else: run_label="EOD REPORT - 16:30 IST"
 
     token_msg="Upstox: OFF - Yahoo Only"
@@ -459,7 +469,7 @@ def main():
              f"Regime: <b>CHOPPY - NO TRADE</b>\n{regime_info}\n"
              f"Reason: 3+/5 Choppy Tests True\n"
              f"Action: <b>PROTECT CAPITAL - No Trade</b>\n"
-             f"Next Check: {'3:15 PM IST BTST' if run_type=='MORNING' else 'Tomorrow 9:45 AM IST'}\n"
+             f"Next Check: {'3:00 PM IST BTST' if run_type=='MORNING' else 'Tomorrow 9:45 AM IST'}\n"
              f"{paper_txt}"
              f"{token_msg}")
         send_tg(msg); print("Choppy - No Trade"); return
@@ -474,7 +484,7 @@ def main():
              f"{token_msg}\nCapital: Rs 5L Paper")
         send_tg(msg); print("EOD Sent"); return
     if run_type=="BTST" and is_thursday:
-        msg=(f"🚫 <b>FNO V8.1 - NO BTST - Thursday - 15:15 IST</b>\nRegime: {regime}\n{regime_info}\n"
+        msg=(f"🚫 <b>FNO V8.1 - NO BTST - Thursday - 15:00 IST</b>\nRegime: {regime}\n{regime_info}\n"
              f"Reason: Thursday BTST = Friday Gap Risk High\nAction: Book all BTST, No new BTST\nNext: Tomorrow 9:45 AM IST\n{paper_txt}")
         send_tg(msg); print("Thursday No BTST"); return
     picks=scan_stocks(regime, run_type)
