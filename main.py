@@ -1,16 +1,17 @@
 # ============================================================
-# FNO V8.2 FINAL - CLEAN - BOT 2 = TRADER ONLY
-# Timing: 9:45 AM / 3:00 PM BTST / 4:30 PM IST - Mon-Fri
+# FNO V8.3 FINAL - CLEAN - BOT 2 = TRADER ONLY
+# Timing: 9:45 AM / 3:00 PM BTST / 4:30 PM IST - RUNS ANYTIME - NO TIME GUARD
 # Data: Upstox Live (Entry, Nifty, VIX) + Yahoo History (EMA, RSI, ADX)
 # Token: Upstox 1-Year Analytical - No Daily Refresh - Exp 2027-11-18
 # Capital: Rs 5L Paper, Risk 1% = Rs 5000, Max 2 Trades
 # Features: Regime + Choppy + Sideways S/R + Smart SL Anti-Hunt
 #           + Sector + Gap + Event + Trailing + Top 2
+#           + BALA AVWP: Day 15m AVWP +12, BTST 1H AVWP Filter +12
 # Telegram: Your ID (Secret) + 5239892901 + 9000971028
 # PAPER TRADING ONLY - BTST only. No live order, No real GTT.
-# TIME GUARD: REMOVED - Manual run allowed anytime.
-# BTST WINDOW: 3:00 PM (2:55 - 3:40 PM)
-# V8.2 FIX: Expiry never blocks Upstox, LTP fallback added, Debug added
+# TIME GUARD: REMOVED - Manual run allowed anytime, any number of times.
+# BTST WINDOW: 3:00 PM (2:55 - 3:40 PM) - But manual run treats as BTST if run in that window
+# V8.3 FIX: + Bala AVWP, + get_data_tf, + paper double .NS fix, Expiry never blocks Upstox
 # ============================================================
 import os, json, requests, traceback, csv
 from datetime import datetime, timedelta
@@ -33,88 +34,91 @@ UPSTOX_BASE = "https://api.upstox.com/v3"
 
 FRIEND_IDS = ["5239892901", "9000971028"]
 def get_all_ids():
-    ids=[]
+    ids = []
     if CHAT_ID_ENV:
         for x in str(CHAT_ID_ENV).split(","):
-            x=x.strip()
-            if x and x not in ids: ids.append(x)
+            x = x.strip()
+            if x and x not in ids:
+                ids.append(x)
     for f in FRIEND_IDS:
-        if f not in ids: ids.append(f)
+        if f not in ids:
+            ids.append(f)
     return ids
 ALL_IDS = get_all_ids()
 
-# ========== UPSTOX CLIENT - V8.2 FIXED ==========
+# ========== UPSTOX CLIENT - V8.3 ==========
 def upstox_headers():
     return {"Authorization": f"Bearer {UPSTOX_TOKEN.strip()}", "Accept": "application/json"}
+
 def upstox_live_price(instrument_key):
     if not UPSTOX_ENABLED:
         print("Upstox disabled - no token in secret")
         return None
-    # Try 1: v3 quotes
     try:
-        r=requests.get(f"{UPSTOX_BASE}/market-quote/quotes", headers=upstox_headers(),
-                       params={"instrument_key": instrument_key}, timeout=10)
+        r = requests.get(f"{UPSTOX_BASE}/market-quote/quotes", headers=upstox_headers(), params={"instrument_key": instrument_key}, timeout=10)
         print(f"DEBUG Upstox quotes {instrument_key} status={r.status_code} resp={r.text[:300]}")
-        if r.status_code==200:
-            data=r.json().get("data", {})
-            q=data.get(instrument_key, {})
-            lp=q.get("last_price") or q.get("ltp") or q.get("last_traded_price")
+        if r.status_code == 200:
+            data = r.json().get("data", {})
+            q = data.get(instrument_key, {})
+            lp = q.get("last_price") or q.get("ltp") or q.get("last_traded_price")
             if lp:
                 return float(lp)
             print(f"DEBUG Upstox quotes empty for {instrument_key}, trying LTP")
     except Exception as e:
         print(f"Upstox quotes error {instrument_key} {e}")
-    # Try 2: v3 LTP - works with Analytical token even when quotes fails
     try:
-        r2=requests.get(f"{UPSTOX_BASE}/market-quote/ltp", headers=upstox_headers(),
-                       params={"instrument_key": instrument_key}, timeout=10)
+        r2 = requests.get(f"{UPSTOX_BASE}/market-quote/ltp", headers=upstox_headers(), params={"instrument_key": instrument_key}, timeout=10)
         print(f"DEBUG Upstox LTP {instrument_key} status={r2.status_code} resp={r2.text[:300]}")
-        if r2.status_code==200:
-            data=r2.json().get("data", {})
-            q=data.get(instrument_key, {})
-            lp=q.get("last_price") or q.get("ltp") or q.get("last_traded_price")
+        if r2.status_code == 200:
+            data = r2.json().get("data", {})
+            q = data.get(instrument_key, {})
+            lp = q.get("last_price") or q.get("ltp") or q.get("last_traded_price")
             if lp:
                 return float(lp)
     except Exception as e:
         print(f"Upstox LTP error {instrument_key} {e}")
-    # Try 3: v2 quotes fallback
     try:
-        r3=requests.get("https://api.upstox.com/v2/market-quote/quotes", headers=upstox_headers(),
-                       params={"instrument_key": instrument_key}, timeout=10)
+        r3 = requests.get("https://api.upstox.com/v2/market-quote/quotes", headers=upstox_headers(), params={"instrument_key": instrument_key}, timeout=10)
         print(f"DEBUG Upstox v2 {instrument_key} status={r3.status_code} resp={r3.text[:300]}")
-        if r3.status_code==200:
-            data=r3.json().get("data", {})
-            q=data.get(instrument_key, {})
-            lp=q.get("last_price") or q.get("ltp")
+        if r3.status_code == 200:
+            data = r3.json().get("data", {})
+            q = data.get(instrument_key, {})
+            lp = q.get("last_price") or q.get("ltp")
             if lp:
                 return float(lp)
     except Exception as e:
         print(f"Upstox v2 error {e}")
     return None
+
 def upstox_candles(instrument_key, interval="15minute"):
-    if not UPSTOX_ENABLED: return None
+    if not UPSTOX_ENABLED:
+        return None
     try:
-        r=requests.get(f"{UPSTOX_BASE}/market-candle/intraday/{instrument_key}/{interval}",
-                       headers=upstox_headers(), timeout=15)
-        if r.status_code!=200: return None
+        r = requests.get(f"{UPSTOX_BASE}/market-candle/intraday/{instrument_key}/{interval}", headers=upstox_headers(), timeout=15)
+        if r.status_code != 200:
+            return None
         return r.json().get("data", {}).get("candles", [])
-    except: return None
+    except:
+        return None
+
 def to_upstox_key(yahoo_sym):
-    base=yahoo_sym.replace(".NS","").replace("-","_")
+    base = yahoo_sym.replace(".NS", "").replace("-", "_").upper()
     return f"NSE_EQ|{base}"
+
 def upstox_token_health():
     try:
         clean = str(UPSTOX_EXPIRY).strip().strip('"').strip("'").strip()
-        # Handle if secret has datetime like 2027-11-18 00:00:00
         if " " in clean:
             clean = clean.split(" ")[0]
         print(f"DEBUG Expiry raw='{UPSTOX_EXPIRY}' clean='{clean}'")
-        exp=datetime.strptime(clean, "%Y-%m-%d").date()
-        today=datetime.now(IST).date()
-        days=(exp-today).days
+        exp = datetime.strptime(clean, "%Y-%m-%d").date()
+        today = datetime.now(IST).date()
+        days = (exp - today).days
         print(f"DEBUG Expiry days left={days}")
-        if days<0: return "EXPIRED", days
-        if days<30: return f"EXPIRING in {days}d - Renew Soon", days
+        if days < 0:
+            return "EXPIRED", days
+        if days < 30:
+            return f"EXPIRING in {days}d - Renew Soon", days
         return f"OK - {days}d left", days
     except Exception as e:
         print(f"DEBUG Expiry parse fail '{UPSTOX_EXPIRY}' err {e} - treating as OK")
@@ -126,7 +130,9 @@ PAPER_QTY_DEFAULT = 100
 
 def btst_gtt_plan(entry, sl, tgt, direction="BUY"):
     try:
-        entry = float(entry); sl = float(sl); tgt = float(tgt)
+        entry = float(entry)
+        sl = float(sl)
+        tgt = float(tgt)
         if direction == "BUY":
             sl_gtt = round(sl * 0.995, 2)
             t1 = round(entry + (tgt - entry) * 0.5, 2)
@@ -193,12 +199,14 @@ def check_paper_trades():
                 cmp_price = None
                 try:
                     if UPSTOX_ENABLED:
-                        cmp_price = upstox_live_price(to_upstox_key(symbol + ".NS"))
+                        yahoo_sym = symbol if symbol.endswith(".NS") else symbol + ".NS"
+                        cmp_price = upstox_live_price(to_upstox_key(yahoo_sym))
                 except Exception:
                     cmp_price = None
                 if not cmp_price:
                     try:
-                        df = get_data(symbol + ".NS", period="5d", interval="1d")
+                        yahoo_sym = symbol if symbol.endswith(".NS") else symbol + ".NS"
+                        df = get_data(yahoo_sym, period="5d", interval="1d")
                         if df is not None and len(df) > 0:
                             cmp_price = float(df['Close'].iloc[-1])
                     except Exception:
@@ -287,169 +295,450 @@ SECTOR_MAP = {
 }
 
 def send_tg(msg):
-    if not BOT_TOKEN: print("No BOT_TOKEN"); return
+    if not BOT_TOKEN:
+        print("No BOT_TOKEN")
+        return
     for cid in ALL_IDS:
         try:
-            r=requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-                json={"chat_id":cid,"text":msg,"parse_mode":"HTML"}, timeout=20)
+            r = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json={"chat_id": cid, "text": msg, "parse_mode": "HTML"}, timeout=20)
             print(f"Telegram to {cid} {r.status_code}")
-        except Exception as e: print(f"TG fail {cid} {e}")
+        except Exception as e:
+            print(f"TG fail {cid} {e}")
 
 def get_data(sym, period="3mo", interval="1d"):
     try:
-        df=yf.download(sym, period=period, interval=interval, progress=False, auto_adjust=True)
-        if df is None or df.empty: return None
-        if isinstance(df.columns, pd.MultiIndex): df.columns=[c[0] for c in df.columns]
+        df = yf.download(sym, period=period, interval=interval, progress=False, auto_adjust=True)
+        if df is None or df.empty:
+            return None
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [c[0] for c in df.columns]
         return df
-    except: return None
+    except:
+        return None
 
-def ema(s,n): return s.ewm(span=n, adjust=False).mean()
-def rsi_calc(s,n=14):
-    d=s.diff(); g=d.clip(lower=0); l=-d.clip(upper=0)
-    ag=g.ewm(alpha=1/n, adjust=False).mean(); al=l.ewm(alpha=1/n, adjust=False).mean()
-    rs=ag/(al+1e-9); return 100-(100/(1+rs))
-def atr_calc(df,n=14):
-    h=df['High']; l=df['Low']; c=df['Close']; pc=c.shift(1)
-    tr=pd.concat([h-l,(h-pc).abs(),(l-pc).abs()],axis=1).max(axis=1)
+def get_data_tf(sym, interval="1wk"):
+    try:
+        if interval == "1wk":
+            return get_data(sym, period="2y", interval="1wk")
+        if interval == "1mo":
+            return get_data(sym, period="5y", interval="1mo")
+        if interval == "1h":
+            return get_data(sym, period="1mo", interval="1h")
+        if interval == "15m":
+            return get_data(sym, period="5d", interval="15m")
+        if interval == "1d":
+            return get_data(sym, period="2y", interval="1d")
+        return get_data(sym, period="3mo", interval=interval)
+    except:
+        return None
+
+def ema(s, n):
+    return s.ewm(span=n, adjust=False).mean()
+
+def rsi_calc(s, n=14):
+    d = s.diff()
+    g = d.clip(lower=0)
+    l = -d.clip(upper=0)
+    ag = g.ewm(alpha=1/n, adjust=False).mean()
+    al = l.ewm(alpha=1/n, adjust=False).mean()
+    rs = ag / (al + 1e-9)
+    return 100 - (100 / (1 + rs))
+
+def atr_calc(df, n=14):
+    h = df['High']
+    l = df['Low']
+    c = df['Close']
+    pc = c.shift(1)
+    tr = pd.concat([h - l, (h - pc).abs(), (l - pc).abs()], axis=1).max(axis=1)
     return tr.ewm(alpha=1/n, adjust=False).mean()
-def adx_calc(df,n=14):
-    h=df['High']; l=df['Low']; c=df['Close']
-    up=h.diff(); dn=-l.diff()
-    pm=np.where((up>dn)&(up>0),up,0); mm=np.where((dn>up)&(dn>0),dn,0)
-    tr=pd.concat([h-l,(h-c.shift(1)).abs(),(l-c.shift(1)).abs()],axis=1).max(axis=1)
-    atr=tr.ewm(alpha=1/n, adjust=False).mean()
-    pdm=pd.Series(pm,index=df.index).ewm(alpha=1/n, adjust=False).mean()
-    mdm=pd.Series(mm,index=df.index).ewm(alpha=1/n, adjust=False).mean()
-    pdi=100*pdm/(atr+1e-9); mdi=100*mdm/(atr+1e-9)
-    dx=100*(pdi-mdi).abs()/(pdi+mdi+1e-9)
+
+def adx_calc(df, n=14):
+    h = df['High']
+    l = df['Low']
+    c = df['Close']
+    up = h.diff()
+    dn = -l.diff()
+    pm = np.where((up > dn) & (up > 0), up, 0)
+    mm = np.where((dn > up) & (dn > 0), dn, 0)
+    tr = pd.concat([h - l, (h - c.shift(1)).abs(), (l - c.shift(1)).abs()], axis=1).max(axis=1)
+    atr = tr.ewm(alpha=1/n, adjust=False).mean()
+    pdm = pd.Series(pm, index=df.index).ewm(alpha=1/n, adjust=False).mean()
+    mdm = pd.Series(mm, index=df.index).ewm(alpha=1/n, adjust=False).mean()
+    pdi = 100 * pdm / (atr + 1e-9)
+    mdi = 100 * mdm / (atr + 1e-9)
+    dx = 100 * (pdi - mdi).abs() / (pdi + mdi + 1e-9)
     return dx.ewm(alpha=1/n, adjust=False).mean(), pdi, mdi
 
+def safe_float(x, default=0.0):
+    try:
+        if x is None or (isinstance(x, float) and np.isnan(x)):
+            return default
+        return float(x)
+    except:
+        return default
+
+# ===== BALA AVWP - V8.3 NEW =====
+def _get_swing_lows(df, left=5, right=5):
+    lows = []
+    try:
+        for i in range(left, len(df) - right):
+            window = df['Low'].iloc[i-left:i+right+1]
+            if df['Low'].iloc[i] == window.min():
+                lows.append((df.index[i], safe_float(df['Low'].iloc[i])))
+    except Exception as e:
+        print(f"Bala swing err {e}")
+    return lows
+
+def _anchored_vwap(df, anchor_idx):
+    try:
+        sub = df.iloc[anchor_idx:].copy()
+        tp = (sub['High'] + sub['Low'] + sub['Close']) / 3
+        pv = (tp * sub['Volume']).cumsum()
+        vv = sub['Volume'].cumsum().replace(0, np.nan)
+        return safe_float((pv / vv).iloc[-1])
+    except:
+        return 0
+
+def bala_day_15m_check(sym):
+    # MORNING: 15-min Low AVWP within 0.4%
+    try:
+        df_15 = get_data_tf(sym, interval="15m")
+        if df_15 is None or len(df_15) < 60:
+            return None
+        swings = _get_swing_lows(df_15, 5, 5)
+        if len(swings) < 2:
+            return None
+        latest_idx = df_15.index.get_loc(swings[-1][0])
+        avwp = _anchored_vwap(df_15, latest_idx)
+        if avwp <= 0:
+            return None
+        price = safe_float(df_15['Close'].iloc[-1])
+        swing_low = swings[-1][1]
+        if abs(price - avwp) / avwp <= 0.004 and price >= avwp:
+            sl = round(swing_low * 0.996, 2)
+            if sl % 1 == 0:
+                sl -= 0.30
+            risk = price - sl
+            if risk <= 0:
+                return None
+            return {"type": "DAY", "avwp": round(avwp, 2), "price": round(price, 2), "sl_avwp": sl, "swing_low": swing_low, "t1": round(price + risk * 1.5, 2), "t2": round(price + risk * 2.5, 2)}
+        return None
+    except Exception as e:
+        print(f"Bala Day {sym} err {e}")
+        return None
+
+def bala_btst_1h_check(sym):
+    # BTST: Close must be > 1H Low AVWP, else SKIP BTST for this stock
+    try:
+        df_1h = get_data_tf(sym, interval="1h")
+        if df_1h is None or len(df_1h) < 60:
+            return {"btst_valid": True, "reason": "No 1H data - allow, not block", "avwp": 0}
+        swings = _get_swing_lows(df_1h, 5, 5)
+        if len(swings) < 2:
+            return {"btst_valid": True, "reason": "No swing - allow", "avwp": 0}
+        latest_idx = df_1h.index.get_loc(swings[-1][0])
+        avwp = _anchored_vwap(df_1h, latest_idx)
+        if avwp <= 0:
+            return {"btst_valid": True, "reason": "No AVWP", "avwp": 0}
+        price = safe_float(df_1h['Close'].iloc[-1])
+        swing_low = swings[-1][1]
+        sl = round(swing_low * 0.996, 2)
+        if sl % 1 == 0:
+            sl -= 0.30
+        if price > avwp:
+            return {"btst_valid": True, "avwp": round(avwp, 2), "close": round(price, 2), "sl_avwp": sl, "swing_low": swing_low}
+        return {"btst_valid": False, "avwp": round(avwp, 2), "close": round(price, 2), "sl_avwp": sl, "reason": "Close below 1H AVWP - SKIP BTST"}
+    except Exception as e:
+        print(f"Bala BTST {sym} err {e}")
+        return {"btst_valid": True, "reason": str(e), "avwp": 0}
+
+def bala_full_check(sym, df_daily):
+    # Full Bala: Chartink + Monthly RSI + Daily/Weekly 200>=400 + 1H AVWP - for +12 boost in BTST
+    try:
+        if df_daily is None or len(df_daily) < 220:
+            return None
+        df = df_daily.copy()
+        close = df['Close']
+        e20 = safe_float(ema(close, 20).iloc[-1])
+        e50 = safe_float(ema(close, 50).iloc[-1])
+        e200 = safe_float(ema(close, 200).iloc[-1])
+        e400 = safe_float(ema(close, 400).iloc[-1])
+        c = safe_float(close.iloc[-1])
+        l = safe_float(df['Low'].iloc[-1])
+        o = safe_float(df['Open'].iloc[-1])
+        rsi_d = safe_float(rsi_calc(close).iloc[-1])
+        vol_ema20 = safe_float(df['Volume'].ewm(span=20, adjust=False).mean().iloc[-1])
+        if not (e20 > e50 and c > e200 and l <= e20 * 1.03 and c >= e20 * 0.97 and c <= e20 * 1.04 and c > o and c > 100 and 42 <= rsi_d <= 63 and vol_ema20 > 300000):
+            return None
+        mo = get_data_tf(sym, interval="1mo")
+        if mo is None or len(mo) < 15:
+            return None
+        rsi_m = safe_float(rsi_calc(mo['Close']).iloc[-1])
+        if not (rsi_m > 60):
+            return None
+        wk = get_data_tf(sym, interval="1wk")
+        if wk is None or len(wk) < 50:
+            return None
+        w200 = safe_float(ema(wk['Close'], 200).iloc[-1])
+        w400 = safe_float(ema(wk['Close'], 400).iloc[-1])
+        if np.isnan(w400) or w400 == 0:
+            w400 = safe_float(ema(wk['Close'], 100).iloc[-1])
+        if not (e200 >= e400 and w200 >= w400):
+            return None
+        bt = bala_btst_1h_check(sym)
+        if not bt.get("btst_valid"):
+            return None
+        # Also need price within 0.4% of AVWP for early entry
+        df_1h = get_data_tf(sym, interval="1h")
+        if df_1h is None:
+            return None
+        price_1h = safe_float(df_1h['Close'].iloc[-1])
+        avwp = bt.get("avwp", 0)
+        if avwp > 0 and abs(price_1h - avwp) / avwp > 0.004:
+            return None
+        return {"avwp": avwp, "sl_avwp": bt.get("sl_avwp", 0), "rsi_d": round(rsi_d, 1), "rsi_m": round(rsi_m, 1)}
+    except Exception as e:
+        print(f"Bala Full {sym} err {e}")
+        return None
+
 def smart_sl(entry, support, resistance, atr, direction):
-    max_dist=entry*0.015
-    if direction=="BUY":
-        base=support-(atr*0.8)-(entry*0.003)
-        sl=base
-        if entry-base>max_dist: sl=entry-max_dist
-        if round(sl)%10==0: sl=sl-7.37
-        tgt=entry+(entry-sl)*2
+    max_dist = entry * 0.015
+    if direction == "BUY":
+        base = support - (atr * 0.8) - (entry * 0.003)
+        sl = base
+        if entry - base > max_dist:
+            sl = entry - max_dist
+        if round(sl) % 10 == 0:
+            sl = sl - 7.37
+        tgt = entry + (entry - sl) * 2
     else:
-        base=resistance+(atr*0.8)+(entry*0.003)
-        sl=base
-        if sl-entry>max_dist: sl=entry+max_dist
-        if round(sl)%10==0: sl=sl+7.37
-        tgt=entry-(sl-entry)*2
-    sl_pct=abs(entry-sl)/entry*100
-    return round(sl,2), round(tgt,2), round(sl_pct,2)
+        base = resistance + (atr * 0.8) + (entry * 0.003)
+        sl = base
+        if sl - entry > max_dist:
+            sl = entry + max_dist
+        if round(sl) % 10 == 0:
+            sl = sl + 7.37
+        tgt = entry - (sl - entry) * 2
+    sl_pct = abs(entry - sl) / entry * 100
+    return round(sl, 2), round(tgt, 2), round(sl_pct, 2)
 
 def detect_regime_and_choppy():
-    nifty=get_data("^NSEI", period="3mo", interval="1d")
-    bank=get_data("^NSEBANK", period="3mo", interval="1d")
-    vix=get_data("^INDIAVIX", period="1mo", interval="1d")
-    if nifty is None: return "TRANSITION",0,0,0,"Nifty data fail",False, "Yahoo"
-    close=nifty['Close']; ema20=ema(close,20); ema50=ema(close,50)
-    adx,_,_=adx_calc(nifty); atr=atr_calc(nifty)
-    last=float(close.iloc[-1]); e20=float(ema20.iloc[-1]); e50=float(ema50.iloc[-1])
-    adx_v=float(adx.iloc[-1])
-    vix_v=float(vix['Close'].iloc[-1]) if vix is not None else 14
-    vix_prev=float(vix['Close'].iloc[-2]) if vix is not None and len(vix)>1 else vix_v
-    vix_jump=(vix_v-vix_prev)/vix_prev*100 if vix_prev else 0
-    data_source="Yahoo (Delayed)"
+    nifty = get_data("^NSEI", period="3mo", interval="1d")
+    bank = get_data("^NSEBANK", period="3mo", interval="1d")
+    vix = get_data("^INDIAVIX", period="1mo", interval="1d")
+    if nifty is None:
+        return "TRANSITION", 0, 0, 0, "Nifty data fail", False, "Yahoo"
+    close = nifty['Close']
+    ema20 = ema(close, 20)
+    ema50 = ema(close, 50)
+    adx, _, _ = adx_calc(nifty)
+    atr = atr_calc(nifty)
+    last = float(close.iloc[-1])
+    e20 = float(ema20.iloc[-1])
+    e50 = float(ema50.iloc[-1])
+    adx_v = float(adx.iloc[-1])
+    vix_v = float(vix['Close'].iloc[-1]) if vix is not None else 14
+    vix_prev = float(vix['Close'].iloc[-2]) if vix is not None and len(vix) > 1 else vix_v
+    vix_jump = (vix_v - vix_prev) / vix_prev * 100 if vix_prev else 0
+    data_source = "Yahoo (Delayed)"
     if UPSTOX_ENABLED:
-        live_nifty=upstox_live_price("NSE_INDEX|Nifty 50")
-        live_vix=upstox_live_price("NSE_INDEX|India VIX")
+        live_nifty = upstox_live_price("NSE_INDEX|Nifty 50")
+        live_vix = upstox_live_price("NSE_INDEX|India VIX")
         if live_nifty:
             print(f"Upstox Nifty Live: {live_nifty} vs Yahoo {last}")
-            last=live_nifty; data_source="Upstox Live"
+            last = live_nifty
+            data_source = "Upstox Live"
         if live_vix:
             print(f"Upstox VIX Live: {live_vix} vs Yahoo {vix_v}")
-            vix_v=live_vix; data_source="Upstox Live"
-    rng=(float(nifty['High'].iloc[-5:].max())-float(nifty['Low'].iloc[-5:].min()))/last*100
-    choppy_score=0; reasons=[]
-    if adx_v<18: choppy_score+=1; reasons.append(f"ADX {adx_v:.1f} Weak")
-    if vix_v>17 or vix_jump>10: choppy_score+=1; reasons.append(f"VIX {vix_v:.1f} High")
-    if rng<1.2: choppy_score+=1; reasons.append(f"Range5D {rng:.2f}% Small")
+            vix_v = live_vix
+            data_source = "Upstox Live"
+    rng = (float(nifty['High'].iloc[-5:].max()) - float(nifty['Low'].iloc[-5:].min())) / last * 100
+    choppy_score = 0
+    reasons = []
+    if adx_v < 18:
+        choppy_score += 1
+        reasons.append(f"ADX {adx_v:.1f} Weak")
+    if vix_v > 17 or vix_jump > 10:
+        choppy_score += 1
+        reasons.append(f"VIX {vix_v:.1f} High")
+    if rng < 1.2:
+        choppy_score += 1
+        reasons.append(f"Range5D {rng:.2f}% Small")
     if bank is not None:
-        bclose=bank['Close']; bema20=ema(bclose,20)
-        nifty_up=last>e20; bank_up=float(bclose.iloc[-1])>float(bema20.iloc[-1])
-        if nifty_up!=bank_up: choppy_score+=1; reasons.append("Nifty vs Bank Disagree")
-    if abs(last-e20)/last*100<0.3 and adx_v<20: choppy_score+=1; reasons.append("Near EMA20 + Weak ADX")
-    is_choppy=choppy_score>=3
-    if is_choppy: regime="CHOPPY - NO TRADE"
-    elif last>e20 and last>e50 and adx_v>25: regime="STRONG BULL"
-    elif last<e20 and last<e50 and adx_v>25: regime="STRONG BEAR"
-    elif adx_v<22: regime="SIDEWAYS"
-    elif vix_v>17: regime="VOLATILE"
-    else: regime="TRANSITION"
-    info=f"Nifty {last:.1f} | EMA20 {e20:.1f} EMA50 {e50:.1f} | ADX {adx_v:.1f} | VIX {vix_v:.1f} | Range5D {rng:.2f}% | Choppy {choppy_score}/5 | Data: {data_source}"
+        bclose = bank['Close']
+        bema20 = ema(bclose, 20)
+        nifty_up = last > e20
+        bank_up = float(bclose.iloc[-1]) > float(bema20.iloc[-1])
+        if nifty_up != bank_up:
+            choppy_score += 1
+            reasons.append("Nifty vs Bank Disagree")
+    if abs(last - e20) / last * 100 < 0.3 and adx_v < 20:
+        choppy_score += 1
+        reasons.append("Near EMA20 + Weak ADX")
+    is_choppy = choppy_score >= 3
+    if is_choppy:
+        regime = "CHOPPY - NO TRADE"
+    elif last > e20 and last > e50 and adx_v > 25:
+        regime = "STRONG BULL"
+    elif last < e20 and last < e50 and adx_v > 25:
+        regime = "STRONG BEAR"
+    elif adx_v < 22:
+        regime = "SIDEWAYS"
+    elif vix_v > 17:
+        regime = "VOLATILE"
+    else:
+        regime = "TRANSITION"
+    info = f"Nifty {last:.1f} | EMA20 {e20:.1f} EMA50 {e50:.1f} | ADX {adx_v:.1f} | VIX {vix_v:.1f} | Range5D {rng:.2f}% | Choppy {choppy_score}/5 | Data: {data_source}"
     return regime, adx_v, vix_v, last, info, is_choppy, data_source
 
 def scan_stocks(regime, run_type):
-    results=[]
+    results = []
     for sym in FNO_STOCKS:
         try:
-            df=get_data(sym, period="3mo", interval="1d")
-            if df is None or len(df)<60: continue
-            close=df['Close']; high=df['High']; low=df['Low']
-            last=float(close.iloc[-1]); prev=float(close.iloc[-2])
-            e20=float(ema(close,20).iloc[-1]); e50=float(ema(close,50).iloc[-1])
-            rsi=float(rsi_calc(close).iloc[-1])
-            atr=float(atr_calc(df).iloc[-1])
-            adx,_,_=adx_calc(df); adx_v=float(adx.iloc[-1])
-            prev_high=float(high.iloc[-2]); prev_low=float(low.iloc[-2])
-            sup=prev_low; res=prev_high
-            live_price=None
+            df = get_data(sym, period="3mo", interval="1d")
+            if df is None or len(df) < 60:
+                continue
+            close = df['Close']
+            high = df['High']
+            low = df['Low']
+            last = float(close.iloc[-1])
+            prev = float(close.iloc[-2])
+            e20 = float(ema(close, 20).iloc[-1])
+            e50 = float(ema(close, 50).iloc[-1])
+            rsi = float(rsi_calc(close).iloc[-1])
+            atr = float(atr_calc(df).iloc[-1])
+            adx, _, _ = adx_calc(df)
+            adx_v = float(adx.iloc[-1])
+            prev_high = float(high.iloc[-2])
+            prev_low = float(low.iloc[-2])
+            sup = prev_low
+            res = prev_high
+            live_price = None
             if UPSTOX_ENABLED:
-                live_price=upstox_live_price(to_upstox_key(sym))
+                live_price = upstox_live_price(to_upstox_key(sym))
                 if live_price:
                     print(f"Upstox {sym}: Live {live_price} vs Yahoo {last}")
-                    last=live_price
-            rng_pct=(res-sup)/last*100 if last else 0
-            day_move=abs(last-prev)/prev*100
-            if run_type=="MORNING" and day_move>2.5: continue
-            sector_ok=True
-            sec_sym=SECTOR_MAP.get(sym)
+                    last = live_price
+            rng_pct = (res - sup) / last * 100 if last else 0
+            day_move = abs(last - prev) / prev * 100
+            if run_type == "MORNING" and day_move > 2.5:
+                continue
+            sector_ok = True
+            sec_sym = SECTOR_MAP.get(sym)
             if sec_sym:
-                sec=get_data(sec_sym, period="1mo", interval="1d")
+                sec = get_data(sec_sym, period="1mo", interval="1d")
                 if sec is not None:
-                    sc=sec['Close']; se20=float(ema(sc,20).iloc[-1]); slast=float(sc.iloc[-1])
-                    if (slast>se20)!=(last>e20): sector_ok=False
-            score=0; direction=None; strategy=""; entry=last
-            if regime in ["SIDEWAYS","VOLATILE"]:
-                if rng_pct<1.2: continue
-                if abs(last-sup)/last*100<0.8 and rsi<40:
-                    direction="BUY"; strategy="Sideways Support Buy"; score=75
-                    if sector_ok: score+=10
-                    if rsi<35: score+=5
-                elif abs(last-res)/last*100<0.8 and rsi>60:
-                    direction="SELL"; strategy="Sideways Resistance Sell"; score=75
-                    if sector_ok: score+=10
-                    if rsi>65: score+=5
-            elif regime=="STRONG BULL":
-                if last>e20 and last>e50 and 50<rsi<70:
-                    if last>=res*0.995: direction="BUY"; strategy="Bull Breakout"; score=85
-                    elif abs(last-e20)/last*100<1.0: direction="BUY"; strategy="Bull Pullback"; score=80
-            elif regime=="STRONG BEAR":
-                if last<e20 and last<e50 and 30<rsi<50:
-                    if last<=sup*1.005: direction="SELL"; strategy="Bear Breakdown"; score=85
-                    elif abs(last-e20)/last*100<1.0: direction="SELL"; strategy="Bear Pullback"; score=80
+                    sc = sec['Close']
+                    se20 = float(ema(sc, 20).iloc[-1])
+                    slast = float(sc.iloc[-1])
+                    if (slast > se20) != (last > e20):
+                        sector_ok = False
+            score = 0
+            direction = None
+            strategy = ""
+            entry = last
+            bala_data = None
+            bala_avwp = False
+            # BALA AVWP - MORNING Day 15m
+            if run_type == "MORNING" and regime in ["STRONG BULL", "SIDEWAYS", "TRANSITION", "VOLATILE"]:
+                bd = bala_day_15m_check(sym)
+                if bd:
+                    bala_data = bd
+                    bala_avwp = True
+            # BALA AVWP - BTST 1H Filter + Full Check
+            if run_type == "BTST":
+                bt = bala_btst_1h_check(sym)
+                if not bt.get("btst_valid"):
+                    print(f"BTST SKIP {sym} - {bt.get('reason')} AVWP {bt.get('avwp')} Close {bt.get('close')}")
+                    continue
+                # Full Bala for +12 boost
+                df_full = get_data(sym, period="2y", interval="1d")
+                bf = bala_full_check(sym, df_full) if df_full is not None else None
+                if bf:
+                    bala_data = bf
+                    bala_avwp = True
+            if regime in ["SIDEWAYS", "VOLATILE"]:
+                if rng_pct < 1.2:
+                    continue
+                if abs(last - sup) / last * 100 < 0.8 and rsi < 40:
+                    direction = "BUY"
+                    strategy = "Sideways Support Buy"
+                    score = 75
+                    if sector_ok:
+                        score += 10
+                    if rsi < 35:
+                        score += 5
+                elif abs(last - res) / last * 100 < 0.8 and rsi > 60:
+                    direction = "SELL"
+                    strategy = "Sideways Resistance Sell"
+                    score = 75
+                    if sector_ok:
+                        score += 10
+                    if rsi > 65:
+                        score += 5
+            elif regime == "STRONG BULL":
+                if last > e20 and last > e50 and 50 < rsi < 70:
+                    if last >= res * 0.995:
+                        direction = "BUY"
+                        strategy = "Bull Breakout"
+                        score = 85
+                    elif abs(last - e20) / last * 100 < 1.0:
+                        direction = "BUY"
+                        strategy = "Bull Pullback"
+                        score = 80
+            elif regime == "STRONG BEAR":
+                if last < e20 and last < e50 and 30 < rsi < 50:
+                    if last <= sup * 1.005:
+                        direction = "SELL"
+                        strategy = "Bear Breakdown"
+                        score = 85
+                    elif abs(last - e20) / last * 100 < 1.0:
+                        direction = "SELL"
+                        strategy = "Bear Pullback"
+                        score = 80
+            # If Bala Day passed but no other strategy matched, still allow Bala as standalone BUY
+            if bala_avwp and direction is None and run_type == "MORNING":
+                if last > e20 and last > e50:
+                    direction = "BUY"
+                    strategy = "Bala AVWP Day"
+                    score = 80
+            if bala_avwp and direction == "BUY":
+                score += 12
+                score = min(95, score)
+                if "Bala" not in strategy:
+                    strategy = strategy + " + Bala AVWP"
+                else:
+                    strategy = strategy
             if direction:
-                sl,tgt,sl_pct=smart_sl(entry, sup, res, atr, direction)
-                if sl_pct>1.8 or sl_pct<0.4: continue
-                qty=int(RISK_PER_TRADE//abs(entry-sl)) if abs(entry-sl)>0 else 0
-                if qty<=0: continue
-                if "Sideways" in strategy: qty=qty//2
-                results.append({"sym":sym.replace(".NS",""),"entry":round(entry,2),"sl":sl,"tgt":tgt,
-                    "sl_pct":sl_pct,"dir":direction,"strat":strategy,"score":score,
-                    "rsi":round(rsi,1),"sup":round(sup,2),"res":round(res,2),
-                    "rng":round(rng_pct,2),"qty":qty,
-                    "src":"Upstox Live" if live_price else "Yahoo"})
+                sl, tgt, sl_pct = smart_sl(entry, sup, res, atr, direction)
+                # Bala SL override - tighter
+                if bala_avwp and bala_data and bala_data.get("sl_avwp"):
+                    bala_sl = bala_data["sl_avwp"]
+                    if direction == "BUY" and bala_sl < entry and bala_sl > entry * 0.97:
+                        sl = round(min(sl, bala_sl), 2)
+                        tgt = round(entry + (entry - sl) * 2, 2)
+                        sl_pct = round(abs(entry - sl) / entry * 100, 2)
+                if sl_pct > 1.8 or sl_pct < 0.4:
+                    continue
+                qty = int(RISK_PER_TRADE // abs(entry - sl)) if abs(entry - sl) > 0 else 0
+                if qty <= 0:
+                    continue
+                if "Sideways" in strategy:
+                    qty = qty // 2
+                results.append({"sym": sym.replace(".NS", ""), "entry": round(entry, 2), "sl": sl, "tgt": tgt,
+                    "sl_pct": sl_pct, "dir": direction, "strat": strategy, "score": score,
+                    "rsi": round(rsi, 1), "sup": round(sup, 2), "res": round(res, 2),
+                    "rng": round(rng_pct, 2), "qty": qty,
+                    "src": "Upstox Live" if live_price else "Yahoo",
+                    "bala_avwp": bala_avwp, "bala_data": bala_data})
         except Exception as e:
-            print(f"Scan fail {sym} {e}"); continue
-    results=sorted(results, key=lambda x: x['score'], reverse=True)
+            print(f"Scan fail {sym} {e}")
+            continue
+    results = sorted(results, key=lambda x: x['score'], reverse=True)
     return results[:MAX_TRADES]
 
 def get_run_type(now):
-    total = now.hour*60 + now.minute
+    total = now.hour * 60 + now.minute
     if 580 <= total <= 610:
         return "MORNING"
     if 895 <= total <= 940:
@@ -459,8 +748,8 @@ def get_run_type(now):
     return None
 
 def main():
-    now=datetime.now(IST)
-    total = now.hour*60 + now.minute
+    now = datetime.now(IST)
+    total = now.hour * 60 + now.minute
     run_type = get_run_type(now)
     if run_type is None:
         if total >= 870 and total < 970:
@@ -469,17 +758,17 @@ def main():
             run_type = "EOD"
         else:
             run_type = "MORNING"
-    print(f"Manual run - Treated as {run_type} at {now.strftime('%H:%M IST')} - Time guard disabled")
-
-    if run_type=="MORNING": run_label="MORNING ENTRY - 09:45 IST"
-    elif run_type=="BTST": run_label="BTST - 15:00 IST - Buy Today Sell Tomorrow"
-    else: run_label="EOD REPORT - 16:30 IST"
-
-    # V8.2 - Expiry is INFO ONLY, never blocks Upstox
-    token_msg="Upstox: OFF - Yahoo Only"
+    print(f"Manual run - Treated as {run_type} at {now.strftime('%H:%M IST')} - Time guard disabled - V8.3")
+    if run_type == "MORNING":
+        run_label = "MORNING ENTRY - 09:45 IST"
+    elif run_type == "BTST":
+        run_label = "BTST - 15:00 IST - Buy Today Sell Tomorrow"
+    else:
+        run_label = "EOD REPORT - 16:30 IST"
+    token_msg = "Upstox: OFF - Yahoo Only"
     if UPSTOX_ENABLED:
         health, days = upstox_token_health()
-        token_msg=f"Upstox: {health} | Exp {UPSTOX_EXPIRY.strip()}"
+        token_msg = f"Upstox: {health} | Exp {UPSTOX_EXPIRY.strip()}"
         print(token_msg)
         print("Token health is info only - will still try Upstox Live (auto-refresh token)")
     else:
@@ -492,42 +781,50 @@ def main():
     except Exception as e:
         print(f"Paper check skip {e}")
     paper_txt = format_paper_updates(paper_updates)
-    is_thursday=now.weekday()==3
-    print(f"V8.2 Run {run_type} {now} IST")
+    is_thursday = now.weekday() == 3
+    print(f"V8.3 Run {run_type} {now} IST")
     regime, adx_v, vix_v, nifty_last, regime_info, is_choppy, data_src = detect_regime_and_choppy()
     print(regime_info)
-    if is_choppy and run_type in ["MORNING","BTST"]:
-        msg=(f"🚫 <b>FNO V8.2 - NO TRADE - {run_label}</b>\n"
+    if is_choppy and run_type in ["MORNING", "BTST"]:
+        msg = (f"🚫 <b>FNO V8.3 - NO TRADE - {run_label}</b>\n"
              f"📅 {now.strftime('%d-%m-%Y %H:%M IST')}\n"
              f"Regime: <b>CHOPPY - NO TRADE</b>\n{regime_info}\n"
              f"Reason: 3+/5 Choppy Tests True\n"
              f"Action: <b>PROTECT CAPITAL - No Trade</b>\n"
-             f"Next Check: {'3:00 PM IST BTST' if run_type=='MORNING' else 'Tomorrow 9:45 AM IST'}\n"
+             f"Next Check: {'3:00 PM IST BTST' if run_type == 'MORNING' else 'Tomorrow 9:45 AM IST'}\n"
              f"{paper_txt}"
              f"{token_msg}")
-        send_tg(msg); print("Choppy - No Trade"); return
-    if run_type=="EOD":
-        msg=(f"📊 <b>FNO V8.2 - EOD REPORT - 16:30 IST</b>\n"
+        send_tg(msg)
+        print("Choppy - No Trade")
+        return
+    if run_type == "EOD":
+        msg = (f"📊 <b>FNO V8.3 - EOD REPORT - 16:30 IST</b>\n"
              f"📅 {now.strftime('%d-%m-%Y')}\n"
              f"Regime Today: <b>{regime}</b>\n{regime_info}\n"
-             f"Tomorrow Plan: {'Sideways - Buy at Support / Sell at Resistance, 50% size' if regime=='SIDEWAYS' else regime}\n"
+             f"Tomorrow Plan: {'Sideways - Buy at Support / Sell at Resistance, 50% size' if regime == 'SIDEWAYS' else regime}\n"
              f"Thursday Note: {'Tomorrow is Friday - No BTST Today' if is_thursday else 'BTST allowed tomorrow if not Choppy'}\n"
              f"Smart SL: Max 1.0% Intraday, 1.5% BTST, 1.8% Swing - Buffered, Non-Round, Close-Based\n"
              f"{paper_txt}"
              f"{token_msg}\nCapital: Rs 5L Paper")
-        send_tg(msg); print("EOD Sent"); return
-    if run_type=="BTST" and is_thursday:
-        msg=(f"🚫 <b>FNO V8.2 - NO BTST - Thursday - 15:00 IST</b>\nRegime: {regime}\n{regime_info}\n"
+        send_tg(msg)
+        print("EOD Sent")
+        return
+    if run_type == "BTST" and is_thursday:
+        msg = (f"🚫 <b>FNO V8.3 - NO BTST - Thursday - 15:00 IST</b>\nRegime: {regime}\n{regime_info}\n"
              f"Reason: Thursday BTST = Friday Gap Risk High\nAction: Book all BTST, No new BTST\nNext: Tomorrow 9:45 AM IST\n{paper_txt}")
-        send_tg(msg); print("Thursday No BTST"); return
-    picks=scan_stocks(regime, run_type)
+        send_tg(msg)
+        print("Thursday No BTST")
+        return
+    picks = scan_stocks(regime, run_type)
     if not picks:
-        msg=(f"📊 <b>FNO V8.2 - NO TRADE - {run_label}</b>\n📅 {now.strftime('%d-%m-%Y %H:%M IST')}\n"
+        msg = (f"📊 <b>FNO V8.3 - NO TRADE - {run_label}</b>\n📅 {now.strftime('%d-%m-%Y %H:%M IST')}\n"
              f"Regime: <b>{regime}</b>\n{regime_info}\n"
-             f"Reason: No stock passed - SL too high / Gap >1.5% / Sector Disagree / Range too small\n{paper_txt}{token_msg}\nCapital: Rs 5L Paper")
-        send_tg(msg); print("No picks"); return
+             f"Reason: No stock passed - SL too high / Gap >1.5% / Sector Disagree / Range too small / BTST below AVWP\n{paper_txt}{token_msg}\nCapital: Rs 5L Paper")
+        send_tg(msg)
+        print("No picks")
+        return
     btst_plans = {}
-    if run_type=="BTST":
+    if run_type == "BTST":
         for p in picks:
             try:
                 if p['dir'] == "BUY":
@@ -537,39 +834,48 @@ def main():
                     btst_plans[p['sym']] = btst_gtt_plan(p['entry'], p['sl'], p['tgt'], direction="SELL")
             except Exception as e:
                 print(f"Paper BTST record skip {p['sym']} {e}")
-    lines=[]
-    for i,p in enumerate(picks,1):
-        emoji="🟢" if p['dir']=="BUY" else "🔴"
-        extra=""
-        if run_type=="BTST": extra="\n⏰ Sell: Tomorrow 9:45 AM IST | SL: Close-Based - Exit only if 2x 15-min closes below SL"
-        if "Sideways" in p['strat']: extra+="\n⚠️ Sideways - 50% Size - Book at VWAP / Mid"
+    lines = []
+    for i, p in enumerate(picks, 1):
+        emoji = "🟢" if p['dir'] == "BUY" else "🔴"
+        extra = ""
+        if run_type == "BTST":
+            extra = "\n⏰ Sell: Tomorrow 9:45 AM IST | SL: Close-Based - Exit only if 2x 15-min closes below SL"
+        if "Sideways" in p['strat']:
+            extra += "\n⚠️ Sideways - 50% Size - Book at VWAP / Mid"
         paper_line = ""
-        if run_type=="BTST":
+        if run_type == "BTST":
             plan = btst_plans.get(p['sym'])
             if plan:
-                if p['dir']=="BUY":
+                if p['dir'] == "BUY":
                     paper_line = f"\n📝 PAPER BTST: Buy Avg {plan['entry']} | SL GTT {plan['sl_gtt']} (100%) | T1 GTT {plan['t1']} (50%) | T2 GTT {plan['t2']} (50%) | Qty {p['qty']} VIRTUAL - No real order"
                 else:
                     paper_line = f"\n📝 PAPER: SELL BTST not tracked as Paper Long - GTT for info only: SL {plan['sl_gtt']} T1 {plan['t1']} T2 {plan['t2']}"
-        lines.append(f"\n{i}. {emoji} <b>{p['dir']} {p['sym']}</b> @ Rs {p['entry']} [{p['src']}]\n"
-            f"Strategy: {p['strat']} | Score: {p['score']}/100 | RSI {p['rsi']}\n"
+        bala_tag = " 🟢 BALA AVWP" if p.get("bala_avwp") else ""
+        bala_line = ""
+        if p.get("bala_data") and p["bala_data"].get("avwp"):
+            bala_line = f"\nAVWP Rs {p['bala_data']['avwp']} | SL_AVWP Rs {p['bala_data'].get('sl_avwp', p['sl'])} Early Entry"
+        lines.append(f"\n{i}. {emoji} <b>{p['dir']} {p['sym']}</b> @ Rs {p['entry']} [{p['src']}]{bala_tag}\n"
+            f"Strategy: {p['strat']} | Score: {p['score']}/100 | RSI {p['rsi']}{bala_line}\n"
             f"Support Rs {p['sup']} | Resistance Rs {p['res']} | Range {p['rng']}%\n"
             f"Smart SL Rs {p['sl']} ({p['sl_pct']}% - Buffered, Anti-Hunt, Non-Round)\n"
             f"Target Rs {p['tgt']} (RR 1:2)\nQty: {p['qty']} (Risk Rs {abs(p['entry']-p['sl'])*p['qty']:.0f})\n"
             f"Trailing: Book 50% at 50% Target, Move SL to Breakeven{extra}{paper_line}")
-    action_note="BUY TODAY - Sell Tomorrow 9:45 AM IST" if run_type=="BTST" else "Entry Now - 9:45 AM IST - Do NOT Chase if Gap >1.5%"
-    paper_header = "\n<b>PAPER TRADE ONLY - BTST</b> - No real order placed\n" if run_type=="BTST" else ""
-    msg=(f"📊 <b>FNO V8.2 - {run_label}</b>\n📅 {now.strftime('%d-%m-%Y %H:%M IST')}\n"
+    action_note = "BUY TODAY - Sell Tomorrow 9:45 AM IST" if run_type == "BTST" else "Entry Now - 9:45 AM IST - Do NOT Chase if Gap >1.5%"
+    paper_header = "\n<b>PAPER TRADE ONLY - BTST</b> - No real order placed\n" if run_type == "BTST" else ""
+    msg = (f"📊 <b>FNO V8.3 - {run_label}</b>\n📅 {now.strftime('%d-%m-%Y %H:%M IST')}\n"
          f"Regime: <b>{regime}</b>\n{regime_info}\nAction: {action_note}\n"
          f"Max Trades: 2 | Capital: Rs 5L Paper | Risk 1% per trade\n{paper_header}{paper_txt}"
          f"{''.join(lines)}\n\n"
          f"⚠️ Smart SL: Do NOT move SL to Support / Round Number. SL is hidden below Support + Buffer. Exit only on 2x 15-min closes below SL (ignore wick).\n{token_msg}")
     send_tg(msg)
-    print(f"V8.2 Complete - {len(picks)} picks sent")
+    print(f"V8.3 Complete - {len(picks)} picks sent")
 
-if __name__=="__main__":
-    try: main()
+if __name__ == "__main__":
+    try:
+        main()
     except Exception as e:
         print(traceback.format_exc())
-        try: send_tg(f"⚠️ V8.2 Error: {e}")
-        except: pass
+        try:
+            send_tg(f"⚠️ V8.3 Error: {e}")
+        except:
+            pass
